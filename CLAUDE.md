@@ -5,7 +5,7 @@ Android app to manage food items in the pantry and fridge, tracking expiration d
 ## Project info
 
 - **Package:** `com.github.pcha.foodsense.app`
-- **Min SDK:** 23
+- **Min SDK:** 26
 - **Target SDK:** 36
 
 ## Tech stack
@@ -32,6 +32,17 @@ Follows the Android layered architecture (UI → Domain → Data):
 - UI layer: Compose screens + ViewModels
 - Data layer: Room repository (`ProductRepository`)
 - No domain layer yet — add use cases only if ViewModel logic becomes complex or shared
+
+## Testing
+
+- Always write tests alongside every feature — no feature is complete without them
+- Unit tests go in `src/test/` (JVM, no emulator needed)
+- Instrumented tests go in `src/androidTest/` (require device/emulator)
+- Prefer fakes over mocks — fakes implement the real interface with in-memory logic
+- Fakes use `MutableStateFlow` so tests can emit values reactively
+- Assert on `uiState.value` — not `.first()` or `.collect()`
+- Name tests as `subject_condition_expectedResult`
+- Each fake must fully implement its interface including all methods
 
 ## What NOT to do
 

@@ -24,6 +24,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import com.github.pcha.foodsense.app.data.local.database.AppDatabase
+import com.github.pcha.foodsense.app.data.local.database.MIGRATION_1_2
 import com.github.pcha.foodsense.app.data.local.database.ProductDao
 import javax.inject.Singleton
 
@@ -43,6 +44,6 @@ class DatabaseModule {
             appContext,
             AppDatabase::class.java,
             "Product"
-        ).build()
+        ).addMigrations(MIGRATION_1_2).build()
     }
 }

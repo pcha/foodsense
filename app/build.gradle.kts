@@ -28,7 +28,7 @@ android {
 
     defaultConfig {
         applicationId = "com.github.pcha.foodsense.app"
-        minSdk = 23
+        minSdk = 26
         targetSdk = 36
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("versionName") as String?) ?: "1.0"
@@ -38,6 +38,7 @@ android {
             useSupportLibrary = true
         }
     }
+
 
     buildTypes {
         getByName("release") {
@@ -97,6 +98,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
     // Tooling
     debugImplementation(libs.androidx.compose.ui.tooling)
     // Instrumented tests
