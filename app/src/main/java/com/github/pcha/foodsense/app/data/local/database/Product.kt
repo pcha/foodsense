@@ -43,4 +43,7 @@ interface ProductDao {
 
     @Query("DELETE FROM product WHERE uid = :uid")
     suspend fun deleteProduct(uid: Int)
+
+    @Query("SELECT * FROM product WHERE expirationDate = :epochDay")
+    suspend fun getProductsExpiringOn(epochDay: Long): List<Product>
 }

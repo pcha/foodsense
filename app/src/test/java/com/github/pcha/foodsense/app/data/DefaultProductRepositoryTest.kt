@@ -65,4 +65,7 @@ private class FakeProductDao : ProductDao {
     override suspend fun deleteProduct(uid: Int) {
         _products.value = _products.value.filter { it.uid != uid }
     }
+
+    override suspend fun getProductsExpiringOn(epochDay: Long): List<Product> =
+        _products.value.filter { it.expirationDate.toEpochDay() == epochDay }
 }
