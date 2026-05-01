@@ -1,3 +1,13 @@
+# [0.3.0](https://github.com/pcha/foodsense/compare/v0.2.0...v0.3.0) (2026-05-01)
+
+
+### Features
+
+* add item editing, quick-add, and batch actions to product card ([12d3c7e](https://github.com/pcha/foodsense/commit/12d3c7eba8d3c96ed9d54c36e7e25f952111579f))
+* split product into product+item two-table model ([e2b5226](https://github.com/pcha/foodsense/commit/e2b52267e07870bc7fbbce7eea9df6cdfc6a891e))
+
+
+
 # [0.2.0](https://github.com/pcha/foodsense/compare/v0.1.0...v0.2.0) (2026-04-28)
 
 
