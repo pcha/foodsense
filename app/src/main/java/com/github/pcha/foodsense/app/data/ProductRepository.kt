@@ -2,44 +2,89 @@ package com.github.pcha.foodsense.app.data
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import com.github.pcha.foodsense.app.data.local.database.Product
+import com.github.pcha.foodsense.app.data.local.database.ItemDao
+import com.github.pcha.foodsense.app.data.local.database.ItemEntity
 import com.github.pcha.foodsense.app.data.local.database.ProductDao
+import com.github.pcha.foodsense.app.data.local.database.ProductEntity
+import com.github.pcha.foodsense.app.data.local.database.ProductUnit
 import java.time.LocalDate
 import javax.inject.Inject
 
-data class ProductItem(
+data class Item(
+    val uid: Int,
+    val productId: Int,
+    val quantity: Float,
+    val unit: ProductUnit?,
+    val expirationDate: LocalDate?,
+    val addedAt: LocalDate,
+)
+
+data class Product(
     val uid: Int,
     val name: String,
-    val quantity: Int,
-    val expirationDate: LocalDate
+    val items: List<Item>,
 )
 
 interface ProductRepository {
-    val products: Flow<List<ProductItem>>
+    val products: Flow<List<Product>>
 
-    suspend fun add(name: String, quantity: Int, expirationDate: LocalDate)
-    suspend fun update(uid: Int, name: String, quantity: Int, expirationDate: LocalDate)
-    suspend fun delete(uid: Int)
+    suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?)
+    suspend fun updateProduct(productId: Int, name: String)
+    suspend fun updateItem(itemId: Int, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?)
+    suspend fun deleteItem(itemId: Int)
+    suspend fun deleteProduct(productId: Int)
 }
 
 class DefaultProductRepository @Inject constructor(
-    private val productDao: ProductDao
+    private val productDao: ProductDao,
+    private val itemDao: ItemDao,
 ) : ProductRepository {
 
-    override val products: Flow<List<ProductItem>> =
-        productDao.getProducts().map { items ->
-            items.map { ProductItem(it.uid, it.name, it.quantity, it.expirationDate) }
+    override val products: Flow<List<Product>> =
+        productDao.getProductsWithItems().map { list ->
+            list.map { pwi ->
+                Product(
+                    uid = pwi.product.uid,
+                    name = pwi.product.name,
+                    items = pwi.items
+                        .sortedWith(
+                            compareBy<ItemEntity, LocalDate?>(nullsLast(naturalOrder())) { it.expirationDate }
+                                .thenBy { it.addedAt }
+                        )
+                        .map { Item(it.uid, it.productId, it.quantity, it.unit, it.expirationDate, it.addedAt) },
+                )
+            }
         }
 
-    override suspend fun add(name: String, quantity: Int, expirationDate: LocalDate) {
-        productDao.insertProduct(Product(name = name, quantity = quantity, expirationDate = expirationDate))
+    override suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {
+        val existing = productDao.findProductByName(name)
+        val productId = existing?.uid ?: productDao.insertProduct(ProductEntity(name)).toInt()
+        itemDao.insertItem(ItemEntity(
+            productId = productId,
+            quantity = quantity,
+            unit = unit,
+            expirationDate = expirationDate,
+            addedAt = LocalDate.now(),
+        ))
     }
 
-    override suspend fun update(uid: Int, name: String, quantity: Int, expirationDate: LocalDate) {
-        productDao.updateProduct(Product(name = name, quantity = quantity, expirationDate = expirationDate).also { it.uid = uid })
+    override suspend fun updateProduct(productId: Int, name: String) {
+        productDao.updateProduct(ProductEntity(name).also { it.uid = productId })
     }
 
-    override suspend fun delete(uid: Int) {
-        productDao.deleteProduct(uid)
+    override suspend fun updateItem(itemId: Int, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {
+        val current = itemDao.getItem(itemId) ?: return
+        itemDao.updateItem(
+            current.copy(quantity = quantity, unit = unit, expirationDate = expirationDate).also { it.uid = itemId }
+        )
+    }
+
+    override suspend fun deleteItem(itemId: Int) {
+        itemDao.deleteItem(itemId)
+        productDao.deleteProductsWithNoItems()
+    }
+
+    override suspend fun deleteProduct(productId: Int) {
+        productDao.deleteProduct(productId)
     }
 }

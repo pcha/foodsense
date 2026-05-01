@@ -6,9 +6,11 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
-import com.github.pcha.foodsense.app.data.ProductItem
+import com.github.pcha.foodsense.app.data.Item
+import com.github.pcha.foodsense.app.data.Product
 import com.github.pcha.foodsense.app.data.ProductRepository
 import com.github.pcha.foodsense.app.data.DefaultProductRepository
+import com.github.pcha.foodsense.app.data.local.database.ProductUnit
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,15 +27,37 @@ interface DataModule {
 }
 
 class FakeProductRepository @Inject constructor() : ProductRepository {
-    override val products: Flow<List<ProductItem>> = flowOf(fakeProducts)
+    override val products: Flow<List<Product>> = flowOf(fakeProducts)
 
-    override suspend fun add(name: String, quantity: Int, expirationDate: LocalDate) {}
-    override suspend fun update(uid: Int, name: String, quantity: Int, expirationDate: LocalDate) {}
-    override suspend fun delete(uid: Int) {}
+    override suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {}
+    override suspend fun updateProduct(productId: Int, name: String) {}
+    override suspend fun updateItem(itemId: Int, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {}
+    override suspend fun deleteItem(itemId: Int) {}
+    override suspend fun deleteProduct(productId: Int) {}
 }
 
 val fakeProducts = listOf(
-    ProductItem(1, "Milk", 2, LocalDate.now().plusDays(3)),
-    ProductItem(2, "Eggs", 12, LocalDate.now().plusDays(7)),
-    ProductItem(3, "Bread", 1, LocalDate.now().plusDays(1)),
+    Product(
+        uid = 1,
+        name = "Milk",
+        items = listOf(
+            Item(1, 1, 1f, ProductUnit.L, LocalDate.now().plusDays(3), LocalDate.now()),
+            Item(2, 1, 1f, ProductUnit.L, LocalDate.now().plusDays(10), LocalDate.now()),
+        ),
+    ),
+    Product(
+        uid = 2,
+        name = "Eggs",
+        items = listOf(
+            Item(3, 2, 12f, null, LocalDate.now().plusDays(7), LocalDate.now()),
+        ),
+    ),
+    Product(
+        uid = 3,
+        name = "Oranges",
+        items = listOf(
+            Item(4, 3, 5f, null, null, LocalDate.now().minusDays(3)),
+            Item(5, 3, 3f, null, null, LocalDate.now()),
+        ),
+    ),
 )

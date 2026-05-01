@@ -24,7 +24,10 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import com.github.pcha.foodsense.app.data.local.database.AppDatabase
+import com.github.pcha.foodsense.app.data.local.database.ItemDao
 import com.github.pcha.foodsense.app.data.local.database.MIGRATION_1_2
+import com.github.pcha.foodsense.app.data.local.database.MIGRATION_2_3
+import com.github.pcha.foodsense.app.data.local.database.MIGRATION_3_4
 import com.github.pcha.foodsense.app.data.local.database.ProductDao
 import javax.inject.Singleton
 
@@ -38,12 +41,17 @@ class DatabaseModule {
     }
 
     @Provides
+    fun provideItemDao(appDatabase: AppDatabase): ItemDao {
+        return appDatabase.itemDao()
+    }
+
+    @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext appContext: Context): AppDatabase {
         return Room.databaseBuilder(
             appContext,
             AppDatabase::class.java,
             "Product"
-        ).addMigrations(MIGRATION_1_2).build()
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
     }
 }

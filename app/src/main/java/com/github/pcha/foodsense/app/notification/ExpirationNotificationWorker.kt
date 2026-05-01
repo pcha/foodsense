@@ -8,8 +8,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.github.pcha.foodsense.app.FoodSense
 import com.github.pcha.foodsense.app.R
-import com.github.pcha.foodsense.app.data.local.database.Product
-import com.github.pcha.foodsense.app.data.local.database.ProductDao
+import com.github.pcha.foodsense.app.data.local.database.ItemDao
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.time.LocalDate
@@ -18,28 +17,28 @@ import java.time.LocalDate
 class ExpirationNotificationWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val productDao: ProductDao,
+    private val itemDao: ItemDao,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         val tomorrow = LocalDate.now().plusDays(1).toEpochDay()
-        val products = productDao.getProductsExpiringOn(tomorrow)
-        if (products.isNotEmpty()) {
-            sendNotification(products)
+        val productNames = itemDao.getProductNamesExpiringOn(tomorrow)
+        if (productNames.isNotEmpty()) {
+            sendNotification(productNames)
         }
         return Result.success()
     }
 
-    private fun sendNotification(products: List<Product>) {
+    private fun sendNotification(productNames: List<String>) {
         val notificationManager = NotificationManagerCompat.from(applicationContext)
         if (!notificationManager.areNotificationsEnabled()) return
 
-        val title = if (products.size == 1) {
+        val title = if (productNames.size == 1) {
             "1 product expires tomorrow"
         } else {
-            "${products.size} products expire tomorrow"
+            "${productNames.size} products expire tomorrow"
         }
-        val body = products.joinToString(", ") { it.name }
+        val body = productNames.joinToString(", ")
 
         val notification = NotificationCompat.Builder(applicationContext, FoodSense.EXPIRATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
