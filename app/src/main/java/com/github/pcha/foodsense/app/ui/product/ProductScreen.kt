@@ -250,8 +250,8 @@ private fun ProductCard(
                             val daysUntil = ChronoUnit.DAYS.between(today, date)
                             val expiryColor = when {
                                 daysUntil < 0 -> MaterialTheme.colorScheme.error
-                                daysUntil < ExpiryThresholds.URGENT_DAYS -> ExpiryColorUrgent
-                                daysUntil < ExpiryThresholds.WARNING_DAYS -> ExpiryColorWarning
+                                daysUntil <= ExpiryThresholds.URGENT_DAYS -> ExpiryColorUrgent
+                                daysUntil <= ExpiryThresholds.WARNING_DAYS -> ExpiryColorWarning
                                 else -> Color.Unspecified
                             }
                             Text(
@@ -602,7 +602,8 @@ private fun UnitDropdown(
     }
 }
 
-@Preview(showBackground = true, name = "Expiry colors")
+@Preview(showBackground = true, name = "Expiry colors – Light")
+@Preview(showBackground = true, name = "Expiry colors – Dark", uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun ExpiryColorsPreview() {
     val today = remember { LocalDate.now() }
