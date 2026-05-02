@@ -15,8 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
@@ -31,7 +31,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -58,8 +58,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation3.runtime.NavKey
-import android.content.res.Resources
+import android.content.Context
 import com.github.pcha.foodsense.app.R
 import com.github.pcha.foodsense.app.data.ExpiryThresholds
 import com.github.pcha.foodsense.app.data.Item
@@ -78,7 +77,6 @@ private val ExpiryColorWarning = Color(0xFF4CAF50)
 
 @Composable
 fun ProductScreen(
-    onItemClick: (NavKey) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ProductViewModel = hiltViewModel(),
 ) {
@@ -311,8 +309,8 @@ private fun CollapsableSectionHeader(
     count: Int,
     expanded: Boolean,
     onToggle: () -> Unit,
-    titleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     modifier: Modifier = Modifier,
+    titleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     Row(
         modifier = modifier
@@ -329,7 +327,7 @@ private fun CollapsableSectionHeader(
             color = titleColor,
         )
         Icon(
-            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
             contentDescription = null,
             tint = titleColor,
         )
@@ -348,11 +346,11 @@ private fun ProductCard(
     modifier: Modifier = Modifier,
 ) {
     val today = remember { LocalDate.now() }
-    val resources = LocalContext.current.resources
+    val context = LocalContext.current
     val itemGroups = remember(product.items) {
         product.items.groupBy { Triple(it.quantity, it.unit, it.expirationDate) }.entries.toList()
     }
-    var deleteGroupItems by remember { mutableStateOf<List<Item>?>(null) }
+    val deleteGroupItems = remember { mutableStateOf<List<Item>?>(null) }
 
     ElevatedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -387,13 +385,13 @@ private fun ProductCard(
                                 else -> Color.Unspecified
                             }
                             Text(
-                                expiryLabel(daysUntil, date, today, resources),
+                                expiryLabel(daysUntil, date, today, context),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = expiryColor,
                                 fontWeight = if (expiryColor != Color.Unspecified) FontWeight.Bold else null,
                             )
                         } else {
-                            Text(addedLabel(groupItems.first().addedAt, today, resources), style = MaterialTheme.typography.bodySmall)
+                            Text(addedLabel(groupItems.first().addedAt, today, context), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     IconButton(onClick = { onEditGroup(groupItems) }) {
@@ -401,7 +399,7 @@ private fun ProductCard(
                     }
                     IconButton(onClick = {
                         if (groupItems.size == 1) onDeleteItem(groupItems.first().uid)
-                        else deleteGroupItems = groupItems
+                        else deleteGroupItems.value = groupItems
                     }) {
                         Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.cd_delete))
                     }
@@ -410,14 +408,14 @@ private fun ProductCard(
         }
     }
 
-    deleteGroupItems?.let { groupItems ->
+    deleteGroupItems.value?.let { groupItems ->
         DeleteCountDialog(
             groupSize = groupItems.size,
             onConfirm = { count ->
                 onDeleteItems(groupItems.take(count).map { it.uid })
-                deleteGroupItems = null
+                deleteGroupItems.value = null
             },
-            onDismiss = { deleteGroupItems = null },
+            onDismiss = { deleteGroupItems.value = null },
         )
     }
 }
@@ -467,48 +465,47 @@ private fun quantityLabel(count: Int, quantity: Float, unit: ProductUnit?): Stri
     return if (count > 1) "$count × $base" else base
 }
 
-private fun relativeMagnitude(from: LocalDate, to: LocalDate, resources: Resources): String {
+private fun relativeMagnitude(from: LocalDate, to: LocalDate, context: Context): String {
     val years = ChronoUnit.YEARS.between(from, to)
     val months = ChronoUnit.MONTHS.between(from, to)
     val days = ChronoUnit.DAYS.between(from, to)
 
-    fun qty(n: Long, pluralsId: Int) = resources.getQuantityString(pluralsId, n.toInt(), n)
+    fun qty(n: Long, pluralsId: Int) = context.resources.getQuantityString(pluralsId, n.toInt(), n)
 
     return when {
         years >= 1L -> {
             val remMonths = ChronoUnit.MONTHS.between(from.plusYears(years), to)
             val yearsStr = qty(years, R.plurals.expiry_years)
-            if (remMonths > 0L) resources.getString(R.string.expiry_and, yearsStr, qty(remMonths, R.plurals.expiry_months))
+            if (remMonths > 0L) context.getString(R.string.expiry_and, yearsStr, qty(remMonths, R.plurals.expiry_months))
             else yearsStr
         }
         months >= 1L -> {
             val remDays = ChronoUnit.DAYS.between(from.plusMonths(months), to)
             val monthsStr = qty(months, R.plurals.expiry_months)
-            if (remDays > 0L) resources.getString(R.string.expiry_and, monthsStr, qty(remDays, R.plurals.expiry_days))
+            if (remDays > 0L) context.getString(R.string.expiry_and, monthsStr, qty(remDays, R.plurals.expiry_days))
             else monthsStr
         }
         else -> qty(days, R.plurals.expiry_days)
     }
 }
 
-private fun expiryLabel(daysUntil: Long, date: LocalDate, today: LocalDate, resources: Resources): String {
-    val magnitude = if (daysUntil < 0) relativeMagnitude(date, today, resources)
-                    else relativeMagnitude(today, date, resources)
+private fun expiryLabel(daysUntil: Long, date: LocalDate, today: LocalDate, context: Context): String {
+    val magnitude = if (daysUntil < 0) relativeMagnitude(date, today, context)
+                    else relativeMagnitude(today, date, context)
     return when {
-        daysUntil == 0L  -> resources.getString(R.string.expiry_today)
-        daysUntil == 1L  -> resources.getString(R.string.expiry_tomorrow)
-        daysUntil == -1L -> resources.getString(R.string.expired_yesterday)
-        daysUntil < 0    -> resources.getString(R.string.expired_ago, magnitude)
-        else             -> resources.getString(R.string.expiry_in, magnitude)
+        daysUntil == 0L  -> context.getString(R.string.expiry_today)
+        daysUntil == 1L  -> context.getString(R.string.expiry_tomorrow)
+        daysUntil == -1L -> context.getString(R.string.expired_yesterday)
+        daysUntil < 0    -> context.getString(R.string.expired_ago, magnitude)
+        else             -> context.getString(R.string.expiry_in, magnitude)
     }
 }
 
-private fun addedLabel(addedAt: LocalDate, today: LocalDate, resources: Resources): String {
-    val daysAgo = ChronoUnit.DAYS.between(addedAt, today)
-    return when {
-        daysAgo == 0L -> resources.getString(R.string.added_today)
-        daysAgo == 1L -> resources.getString(R.string.added_yesterday)
-        else          -> resources.getString(R.string.added_ago, relativeMagnitude(addedAt, today, resources))
+private fun addedLabel(addedAt: LocalDate, today: LocalDate, context: Context): String {
+    return when (ChronoUnit.DAYS.between(addedAt, today)) {
+        0L   -> context.getString(R.string.added_today)
+        1L   -> context.getString(R.string.added_yesterday)
+        else -> context.getString(R.string.added_ago, relativeMagnitude(addedAt, today, context))
     }
 }
 
@@ -542,16 +539,15 @@ private fun AddProductForm(
     onSave: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showDatePicker by remember { mutableStateOf(false) }
+    val showDatePicker = remember { mutableStateOf(false) }
     val formatter = remember { DateTimeFormatter.ofPattern("dd MMM yyyy") }
     val today = remember { LocalDate.now() }
-    val resources = LocalContext.current.resources
+    val context = LocalContext.current
 
     val showName = !isEditingGroup
     val nameEditable = !isEditingProduct && !isQuickAdd
     val showQtyUnitDate = !isEditingProduct
     val showBatchCount = !isEditingProduct && !isEditingGroup
-    val showApplyCount = isEditingGroup
 
     val saveEnabled = when {
         isEditingGroup -> (quantity.toFloatOrNull() ?: 0f) > 0f
@@ -572,7 +568,7 @@ private fun AddProductForm(
                 onExpandedChange = { if (nameEditable) nameDropdownExpanded = it },
             ) {
                 OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable),
+                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
                     value = name,
                     onValueChange = {
                         if (nameEditable) {
@@ -630,7 +626,7 @@ private fun AddProductForm(
                     modifier = Modifier.width(100.dp),
                 )
             }
-            if (showApplyCount) {
+            if (isEditingGroup) {
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = applyCount,
@@ -653,7 +649,7 @@ private fun AddProductForm(
                     singleLine = true,
                 )
                 OutlinedButton(
-                    onClick = { showDatePicker = true },
+                    onClick = { showDatePicker.value = true },
                     modifier = Modifier.padding(top = 8.dp),
                 ) {
                     Text(stringResource(R.string.btn_pick_date))
@@ -662,7 +658,7 @@ private fun AddProductForm(
             if (expirationDate != null) {
                 val daysUntil = ChronoUnit.DAYS.between(today, expirationDate)
                 Text(
-                    expiryLabel(daysUntil, expirationDate, today, resources),
+                    expiryLabel(daysUntil, expirationDate, today, context),
                     style = MaterialTheme.typography.bodySmall,
                     color = when {
                         daysUntil < 0 -> MaterialTheme.colorScheme.error
@@ -682,23 +678,23 @@ private fun AddProductForm(
         }
     }
 
-    if (showDatePicker) {
+    if (showDatePicker.value) {
         val datePickerState = rememberDatePickerState()
         DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
+            onDismissRequest = { showDatePicker.value = false },
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
                         val date = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
                         onDateSelected(date)
                     }
-                    showDatePicker = false
+                    showDatePicker.value = false
                 }) {
                     Text(stringResource(R.string.btn_ok))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) {
+                TextButton(onClick = { showDatePicker.value = false }) {
                     Text(stringResource(R.string.btn_cancel))
                 }
             },
@@ -715,33 +711,33 @@ private fun UnitDropdown(
     onSelected: (ProductUnit?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    val expanded = remember { mutableStateOf(false) }
     val options: List<ProductUnit?> = listOf(null) + ProductUnit.entries
 
     ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
+        expanded = expanded.value,
+        onExpandedChange = { expanded.value = it },
         modifier = modifier,
     ) {
         OutlinedTextField(
-            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
             value = selected?.displayLabel() ?: "—",
             onValueChange = {},
             readOnly = true,
             label = { Text(stringResource(R.string.field_unit)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded.value) },
             singleLine = true,
         )
         ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
+            expanded = expanded.value,
+            onDismissRequest = { expanded.value = false },
         ) {
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option?.displayLabel() ?: "—") },
                     onClick = {
                         onSelected(option)
-                        expanded = false
+                        expanded.value = false
                     },
                 )
             }

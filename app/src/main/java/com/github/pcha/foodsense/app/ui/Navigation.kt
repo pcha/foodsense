@@ -37,7 +37,6 @@ fun MainNavigation() {
         entryProvider = entryProvider {
             entry<Main> {
                 ProductScreen(
-                    onItemClick = { navKey -> backStack.add(navKey) },
                     modifier = Modifier.safeDrawingPadding().padding(16.dp)
                 )
             }
