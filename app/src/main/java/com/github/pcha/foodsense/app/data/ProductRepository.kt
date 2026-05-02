@@ -27,6 +27,7 @@ data class Product(
 
 interface ProductRepository {
     val products: Flow<List<Product>>
+    val productNames: Flow<List<String>>
 
     suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?)
     suspend fun updateProduct(productId: Int, name: String)
@@ -42,7 +43,7 @@ class DefaultProductRepository @Inject constructor(
 
     override val products: Flow<List<Product>> =
         productDao.getProductsWithItems().map { list ->
-            list.map { pwi ->
+            list.filter { it.items.isNotEmpty() }.map { pwi ->
                 Product(
                     uid = pwi.product.uid,
                     name = pwi.product.name,
@@ -55,6 +56,8 @@ class DefaultProductRepository @Inject constructor(
                 )
             }
         }
+
+    override val productNames: Flow<List<String>> = productDao.getAllProductNames()
 
     override suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {
         val existing = productDao.findProductByName(name)
@@ -81,7 +84,6 @@ class DefaultProductRepository @Inject constructor(
 
     override suspend fun deleteItem(itemId: Int) {
         itemDao.deleteItem(itemId)
-        productDao.deleteProductsWithNoItems()
     }
 
     override suspend fun deleteProduct(productId: Int) {

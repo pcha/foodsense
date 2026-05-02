@@ -30,6 +30,10 @@ class ProductViewModel @Inject constructor(
                 .catch { e -> _uiState.update { it.copy(error = e, isLoading = false) } }
                 .collect { items -> _uiState.update { it.copy(products = items, isLoading = false) } }
         }
+        viewModelScope.launch {
+            productRepository.productNames
+                .collect { names -> _uiState.update { it.copy(allProductNames = names) } }
+        }
     }
 
     fun openAddSheet() = _uiState.update { it.copy(showAddSheet = true) }
@@ -150,6 +154,7 @@ class ProductViewModel @Inject constructor(
 
 data class ProductUiState(
     val products: List<Product> = emptyList(),
+    val allProductNames: List<String> = emptyList(),
     val isLoading: Boolean = true,
     val error: Throwable? = null,
     val showAddSheet: Boolean = false,

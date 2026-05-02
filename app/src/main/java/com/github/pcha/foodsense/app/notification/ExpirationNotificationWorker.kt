@@ -1,6 +1,8 @@
 package com.github.pcha.foodsense.app.notification
 
+import android.Manifest
 import android.content.Context
+import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.work.HiltWorker
@@ -29,6 +31,7 @@ class ExpirationNotificationWorker @AssistedInject constructor(
         return Result.success()
     }
 
+    @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
     private fun sendNotification(productNames: List<String>) {
         val notificationManager = NotificationManagerCompat.from(applicationContext)
         if (!notificationManager.areNotificationsEnabled()) return

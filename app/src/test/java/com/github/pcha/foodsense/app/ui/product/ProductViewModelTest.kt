@@ -5,6 +5,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -250,6 +251,7 @@ class ProductViewModelTest {
 private class FakeProductRepository : ProductRepository {
     private val _products = MutableStateFlow<List<Product>?>(null)
     override val products: Flow<List<Product>> = _products.filterNotNull()
+    override val productNames: Flow<List<String>> = _products.filterNotNull().map { it.map { p -> p.name } }
     private var nextProductUid = 1
     private var nextItemUid = 1
 

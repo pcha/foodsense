@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -159,4 +160,7 @@ private class FakeProductDao(private val itemDao: FakeItemDao) : ProductDao {
     override suspend fun deleteProduct(uid: Int) {
         _products.value = _products.value.filter { it.uid != uid }
     }
+
+    override fun getAllProductNames(): Flow<List<String>> =
+        _products.map { it.map { p -> p.name }.sorted() }
 }

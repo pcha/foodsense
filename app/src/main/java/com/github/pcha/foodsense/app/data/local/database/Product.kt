@@ -88,6 +88,9 @@ interface ProductDao {
 
     @Query("DELETE FROM product WHERE uid = :uid")
     suspend fun deleteProduct(uid: Int)
+
+    @Query("SELECT name FROM product ORDER BY name ASC")
+    fun getAllProductNames(): Flow<List<String>>
 }
 
 @Dao

@@ -71,6 +71,7 @@ fun ProductScreen(
 
     ProductScreen(
         items = uiState.products,
+        nameSuggestions = uiState.allProductNames,
         showAddSheet = uiState.showAddSheet,
         isEditingProduct = uiState.editingProductId != null,
         isQuickAdd = uiState.addingToProductId != null,
@@ -104,6 +105,7 @@ fun ProductScreen(
 @Composable
 internal fun ProductScreen(
     items: List<Product>,
+    nameSuggestions: List<String>,
     showAddSheet: Boolean,
     isEditingProduct: Boolean,
     isQuickAdd: Boolean,
@@ -170,6 +172,7 @@ internal fun ProductScreen(
             AddProductForm(
                 name = formName,
                 onNameChange = onFormNameChange,
+                nameSuggestions = nameSuggestions,
                 quantity = formQuantity,
                 onQuantityChange = onFormQuantityChange,
                 unit = formUnit,
@@ -320,6 +323,7 @@ private fun ProductUnit.displayLabel(): String = when (this) {
 private fun AddProductForm(
     name: String,
     onNameChange: (String) -> Unit,
+    nameSuggestions: List<String>,
     quantity: String,
     onQuantityChange: (String) -> Unit,
     unit: ProductUnit?,
@@ -355,14 +359,43 @@ private fun AddProductForm(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (showName) {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = name,
-                onValueChange = if (nameEditable) onNameChange else { _ -> },
-                label = { Text("Product name") },
-                singleLine = true,
-                readOnly = !nameEditable,
-            )
+            var nameDropdownExpanded by remember { mutableStateOf(false) }
+            val filteredSuggestions = remember(name, nameSuggestions) {
+                if (name.isBlank()) nameSuggestions
+                else nameSuggestions.filter { it.contains(name, ignoreCase = true) && !it.equals(name, ignoreCase = true) }
+            }
+            ExposedDropdownMenuBox(
+                expanded = nameEditable && nameDropdownExpanded && filteredSuggestions.isNotEmpty(),
+                onExpandedChange = { if (nameEditable) nameDropdownExpanded = it },
+            ) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable),
+                    value = name,
+                    onValueChange = {
+                        if (nameEditable) {
+                            onNameChange(it)
+                            nameDropdownExpanded = true
+                        }
+                    },
+                    label = { Text("Product name") },
+                    singleLine = true,
+                    readOnly = !nameEditable,
+                )
+                ExposedDropdownMenu(
+                    expanded = nameEditable && nameDropdownExpanded && filteredSuggestions.isNotEmpty(),
+                    onDismissRequest = { nameDropdownExpanded = false },
+                ) {
+                    filteredSuggestions.forEach { suggestion ->
+                        DropdownMenuItem(
+                            text = { Text(suggestion) },
+                            onClick = {
+                                onNameChange(suggestion)
+                                nameDropdownExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
         }
         if (showQtyUnitDate) {
             Row(
@@ -506,6 +539,7 @@ private fun DefaultPreview() {
     MyApplicationTheme {
         ProductScreen(
             items = fakeProducts,
+            nameSuggestions = emptyList(),
             showAddSheet = false,
             isEditingProduct = false,
             isQuickAdd = false,
@@ -541,6 +575,7 @@ private fun EditGroupPreview() {
     MyApplicationTheme {
         ProductScreen(
             items = fakeProducts,
+            nameSuggestions = emptyList(),
             showAddSheet = true,
             isEditingProduct = false,
             isQuickAdd = false,

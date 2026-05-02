@@ -28,6 +28,7 @@ interface DataModule {
 
 class FakeProductRepository @Inject constructor() : ProductRepository {
     override val products: Flow<List<Product>> = flowOf(fakeProducts)
+    override val productNames: Flow<List<String>> = flowOf(fakeProducts.map { it.name })
 
     override suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {}
     override suspend fun updateProduct(productId: Int, name: String) {}
