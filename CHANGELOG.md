@@ -1,3 +1,12 @@
+# [0.4.0](https://github.com/pcha/foodsense/compare/v0.3.0...v0.4.0) (2026-05-02)
+
+
+### Features
+
+* autocomplete product name from history ([e3433cb](https://github.com/pcha/foodsense/commit/e3433cb28443cfb76bad4c808533643d75a77d93))
+
+
+
 # [0.3.0](https://github.com/pcha/foodsense/compare/v0.2.0...v0.3.0) (2026-05-01)
 
 
