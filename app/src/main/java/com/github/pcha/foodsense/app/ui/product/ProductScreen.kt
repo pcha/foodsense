@@ -215,7 +215,6 @@ private fun ProductCard(
     onEditGroup: (List<Item>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val formatter = remember { DateTimeFormatter.ofPattern("dd MMM yyyy") }
     val today = remember { LocalDate.now() }
     val resources = LocalContext.current.resources
     val itemGroups = remember(product.items) {
@@ -262,7 +261,7 @@ private fun ProductCard(
                                 fontWeight = if (expiryColor != Color.Unspecified) FontWeight.Bold else null,
                             )
                         } else {
-                            Text(stringResource(R.string.label_added_date, groupItems.first().addedAt.format(formatter)), style = MaterialTheme.typography.bodySmall)
+                            Text(addedLabel(groupItems.first().addedAt, today, resources), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     IconButton(onClick = { onEditGroup(groupItems) }) {
@@ -336,39 +335,48 @@ private fun quantityLabel(count: Int, quantity: Float, unit: ProductUnit?): Stri
     return if (count > 1) "$count × $base" else base
 }
 
-private fun expiryLabel(daysUntil: Long, date: LocalDate, today: LocalDate, resources: Resources): String {
-    val isPast = daysUntil < 0
-    val ref = if (isPast) date else today
-    val target = if (isPast) today else date
-
-    val years = ChronoUnit.YEARS.between(ref, target)
-    val months = ChronoUnit.MONTHS.between(ref, target)
-    val days = if (isPast) -daysUntil else daysUntil
+private fun relativeMagnitude(from: LocalDate, to: LocalDate, resources: Resources): String {
+    val years = ChronoUnit.YEARS.between(from, to)
+    val months = ChronoUnit.MONTHS.between(from, to)
+    val days = ChronoUnit.DAYS.between(from, to)
 
     fun qty(n: Long, pluralsId: Int) = resources.getQuantityString(pluralsId, n.toInt(), n)
 
-    val magnitude = when {
+    return when {
         years >= 1L -> {
-            val remMonths = ChronoUnit.MONTHS.between(ref.plusYears(years), target)
+            val remMonths = ChronoUnit.MONTHS.between(from.plusYears(years), to)
             val yearsStr = qty(years, R.plurals.expiry_years)
             if (remMonths > 0L) resources.getString(R.string.expiry_and, yearsStr, qty(remMonths, R.plurals.expiry_months))
             else yearsStr
         }
         months >= 1L -> {
-            val remDays = ChronoUnit.DAYS.between(ref.plusMonths(months), target)
+            val remDays = ChronoUnit.DAYS.between(from.plusMonths(months), to)
             val monthsStr = qty(months, R.plurals.expiry_months)
             if (remDays > 0L) resources.getString(R.string.expiry_and, monthsStr, qty(remDays, R.plurals.expiry_days))
             else monthsStr
         }
         else -> qty(days, R.plurals.expiry_days)
     }
+}
 
+private fun expiryLabel(daysUntil: Long, date: LocalDate, today: LocalDate, resources: Resources): String {
+    val magnitude = if (daysUntil < 0) relativeMagnitude(date, today, resources)
+                    else relativeMagnitude(today, date, resources)
     return when {
         daysUntil == 0L  -> resources.getString(R.string.expiry_today)
         daysUntil == 1L  -> resources.getString(R.string.expiry_tomorrow)
         daysUntil == -1L -> resources.getString(R.string.expired_yesterday)
-        isPast           -> resources.getString(R.string.expired_ago, magnitude)
+        daysUntil < 0    -> resources.getString(R.string.expired_ago, magnitude)
         else             -> resources.getString(R.string.expiry_in, magnitude)
+    }
+}
+
+private fun addedLabel(addedAt: LocalDate, today: LocalDate, resources: Resources): String {
+    val daysAgo = ChronoUnit.DAYS.between(addedAt, today)
+    return when {
+        daysAgo == 0L -> resources.getString(R.string.added_today)
+        daysAgo == 1L -> resources.getString(R.string.added_yesterday)
+        else          -> resources.getString(R.string.added_ago, relativeMagnitude(addedAt, today, resources))
     }
 }
 

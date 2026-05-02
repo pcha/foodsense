@@ -36,6 +36,11 @@
     <string name="dialog_delete_title">How many to remove?</string>
     <string name="dialog_delete_count_label">Count (max %1$d)</string>
 
+    <!-- Added labels -->
+    <string name="added_today">Added today</string>
+    <string name="added_yesterday">Added yesterday</string>
+    <string name="added_ago">Added %1$s ago</string>
+
     <!-- Expiry labels -->
     <string name="expiry_today">Expires today</string>
     <string name="expiry_tomorrow">Expires tomorrow</string>
