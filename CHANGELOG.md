@@ -1,3 +1,12 @@
+# [0.5.0](https://github.com/pcha/foodsense/compare/v0.4.1...v0.5.0) (2026-05-02)
+
+
+### Features
+
+* **expiry:** add intelligent labels and color-coded warning system ([46fc498](https://github.com/pcha/foodsense/commit/46fc498ecbc29273e31c5f867a82bc00af796c5b)), closes [#FF9800](https://github.com/pcha/foodsense/issues/FF9800) [#4CAF50](https://github.com/pcha/foodsense/issues/4CAF50)
+
+
+
 ## [0.4.1](https://github.com/pcha/foodsense/compare/v0.4.0...v0.4.1) (2026-05-02)
 
 
