@@ -1,3 +1,17 @@
+# [0.7.0](https://github.com/pcha/foodsense/compare/v0.6.0...v0.7.0) (2026-05-02)
+
+
+### Bug Fixes
+
+* **ui:** adjust color thresholds to use inclusive ranges ([7a61db8](https://github.com/pcha/foodsense/commit/7a61db8745e2b5840ccead7a15a741e2e9ff9a5d))
+
+
+### Features
+
+* **ui:** add collapsable sections, expiry colors, and smart date labels ([f202783](https://github.com/pcha/foodsense/commit/f202783aeb1152437983770daa5705d32169b14d))
+
+
+
 # [0.6.0](https://github.com/pcha/foodsense/compare/v0.5.0...v0.6.0) (2026-05-02)
 
 
