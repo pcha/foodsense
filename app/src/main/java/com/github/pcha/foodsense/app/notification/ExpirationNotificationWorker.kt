@@ -9,6 +9,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.github.pcha.foodsense.app.FoodSense
 import com.github.pcha.foodsense.app.R
+import com.github.pcha.foodsense.app.data.ExpiryThresholds
 import com.github.pcha.foodsense.app.data.local.database.ItemDao
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -22,7 +23,7 @@ class ExpirationNotificationWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val tomorrow = LocalDate.now().plusDays(1).toEpochDay()
+        val tomorrow = LocalDate.now().plusDays(ExpiryThresholds.URGENT_DAYS).toEpochDay()
         val productNames = itemDao.getProductNamesExpiringOn(tomorrow)
         if (productNames.isNotEmpty()) {
             sendNotification(productNames)

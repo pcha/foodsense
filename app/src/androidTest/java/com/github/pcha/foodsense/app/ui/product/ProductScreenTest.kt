@@ -9,6 +9,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import com.github.pcha.foodsense.app.data.di.fakeProducts
+import com.github.pcha.foodsense.app.data.local.database.ProductUnit
 import java.time.LocalDate
 
 @RunWith(AndroidJUnit4::class)
@@ -22,16 +23,29 @@ class ProductScreenTest {
         composeTestRule.setContent {
             ProductScreen(
                 items = fakeProducts,
+                nameSuggestions = emptyList(),
                 showAddSheet = false,
-                isEditing = false,
+                isEditingProduct = false,
+                isQuickAdd = false,
+                isEditingGroup = false,
+                maxApplyCount = 1,
                 onOpenAddSheet = {},
                 onDismissAddSheet = {},
                 onEditProduct = {},
-                onDeleteProduct = {},
+                onQuickAdd = {},
+                onEditGroup = {},
+                onDeleteItem = {},
+                onDeleteItems = {},
                 formName = "",
                 onFormNameChange = {},
                 formQuantity = "1",
                 onFormQuantityChange = {},
+                formUnit = null,
+                onFormUnitChange = {},
+                formBatchCount = "1",
+                onFormBatchCountChange = {},
+                formApplyCount = "1",
+                onFormApplyCountChange = {},
                 formDate = null,
                 onFormDateSelected = {},
                 onSave = {},

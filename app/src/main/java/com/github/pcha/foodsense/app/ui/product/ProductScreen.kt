@@ -45,12 +45,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
+import com.github.pcha.foodsense.app.data.ExpiryThresholds
 import com.github.pcha.foodsense.app.data.Item
 import com.github.pcha.foodsense.app.data.Product
 import com.github.pcha.foodsense.app.data.di.fakeProducts
@@ -60,6 +63,10 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+
+private val ExpiryColorUrgent = Color(0xFFFF9800)
+private val ExpiryColorWarning = Color(0xFF4CAF50)
 
 @Composable
 fun ProductScreen(
@@ -205,6 +212,7 @@ private fun ProductCard(
     modifier: Modifier = Modifier,
 ) {
     val formatter = remember { DateTimeFormatter.ofPattern("dd MMM yyyy") }
+    val today = remember { LocalDate.now() }
     val itemGroups = remember(product.items) {
         product.items.groupBy { Triple(it.quantity, it.unit, it.expirationDate) }.entries.toList()
     }
@@ -235,7 +243,19 @@ private fun ProductCard(
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(quantityLabel(groupItems.size, qty, unit), style = MaterialTheme.typography.bodyMedium)
                         if (date != null) {
-                            Text("Expires: ${date.format(formatter)}", style = MaterialTheme.typography.bodySmall)
+                            val daysUntil = ChronoUnit.DAYS.between(today, date)
+                            val expiryColor = when {
+                                daysUntil < 0 -> MaterialTheme.colorScheme.error
+                                daysUntil < ExpiryThresholds.URGENT_DAYS -> ExpiryColorUrgent
+                                daysUntil < ExpiryThresholds.WARNING_DAYS -> ExpiryColorWarning
+                                else -> Color.Unspecified
+                            }
+                            Text(
+                                expiryLabel(daysUntil, date, today),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = expiryColor,
+                                fontWeight = if (expiryColor != Color.Unspecified) FontWeight.Bold else null,
+                            )
                         } else {
                             Text("Added: ${groupItems.first().addedAt.format(formatter)}", style = MaterialTheme.typography.bodySmall)
                         }
@@ -309,6 +329,44 @@ private fun quantityLabel(count: Int, quantity: Float, unit: ProductUnit?): Stri
     val qtyStr = if (quantity == quantity.toLong().toFloat()) quantity.toLong().toString() else quantity.toString()
     val base = if (unit != null) "$qtyStr ${unit.displayLabel()}" else "Qty: $qtyStr"
     return if (count > 1) "$count × $base" else base
+}
+
+private fun expiryLabel(daysUntil: Long, date: LocalDate, today: LocalDate): String {
+    val isPast = daysUntil < 0
+    val ref = if (isPast) date else today
+    val target = if (isPast) today else date
+
+    val years = ChronoUnit.YEARS.between(ref, target)
+    val months = ChronoUnit.MONTHS.between(ref, target)
+    val days = if (isPast) -daysUntil else daysUntil
+
+    fun plural(n: Long, unit: String) = "$n $unit${if (n == 1L) "" else "s"}"
+
+    val magnitude = when {
+        years >= 1L -> {
+            val remMonths = ChronoUnit.MONTHS.between(ref.plusYears(years), target)
+            buildString {
+                append(plural(years, "year"))
+                if (remMonths > 0L) append(" and ${plural(remMonths, "month")}")
+            }
+        }
+        months >= 1L -> {
+            val remDays = ChronoUnit.DAYS.between(ref.plusMonths(months), target)
+            buildString {
+                append(plural(months, "month"))
+                if (remDays > 0L) append(" and ${plural(remDays, "day")}")
+            }
+        }
+        else -> plural(days, "day")
+    }
+
+    return when {
+        daysUntil == 0L  -> "Expires today"
+        daysUntil == 1L  -> "Expires tomorrow"
+        daysUntil == -1L -> "Expired yesterday"
+        isPast           -> "Expired $magnitude ago"
+        else             -> "Expires in $magnitude"
+    }
 }
 
 private fun ProductUnit.displayLabel(): String = when (this) {
@@ -530,6 +588,54 @@ private fun UnitDropdown(
                 )
             }
         }
+    }
+}
+
+@Preview(showBackground = true, name = "Expiry colors")
+@Composable
+private fun ExpiryColorsPreview() {
+    val today = remember { LocalDate.now() }
+    val expiryItems = remember {listOf(
+        Product(1, "Expired 5 days ago",  listOf(Item(1,  1, 1f, ProductUnit.L, today.minusDays(5), today))),
+        Product(2, "Expired yesterday",   listOf(Item(2,  2, 1f, ProductUnit.L, today.minusDays(1), today))),
+        Product(3, "Expires today",       listOf(Item(3,  3, 1f, ProductUnit.L, today,              today))),
+        Product(4, "Expires tomorrow",    listOf(Item(4,  4, 1f, ProductUnit.L, today.plusDays(1),  today))),
+        Product(5, "Expires in 2 days",   listOf(Item(5,  5, 1f, ProductUnit.L, today.plusDays(2),  today))),
+        Product(6, "Expires in 5 days",   listOf(Item(6,  6, 1f, ProductUnit.L, today.plusDays(5),  today))),
+        Product(7, "Expires in 40 days",  listOf(Item(7,  7, 1f, ProductUnit.L, today.plusDays(40), today))),
+        Product(8, "Expires in 400 days", listOf(Item(8,  8, 1f, ProductUnit.L, today.plusDays(400),today))),
+        Product(9, "No expiry date",      listOf(Item(9,  9, 1f, null,          null,               today))),
+    )}
+    MyApplicationTheme {
+        ProductScreen(
+            items = expiryItems,
+            nameSuggestions = emptyList(),
+            showAddSheet = false,
+            isEditingProduct = false,
+            isQuickAdd = false,
+            isEditingGroup = false,
+            maxApplyCount = 1,
+            onOpenAddSheet = {},
+            onDismissAddSheet = {},
+            onEditProduct = {},
+            onQuickAdd = {},
+            onEditGroup = {},
+            onDeleteItem = {},
+            onDeleteItems = {},
+            formName = "",
+            onFormNameChange = {},
+            formQuantity = "1",
+            onFormQuantityChange = {},
+            formUnit = null,
+            onFormUnitChange = {},
+            formBatchCount = "1",
+            onFormBatchCountChange = {},
+            formApplyCount = "1",
+            onFormApplyCountChange = {},
+            formDate = null,
+            onFormDateSelected = {},
+            onSave = {},
+        )
     }
 }
 
