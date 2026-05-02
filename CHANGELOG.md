@@ -1,3 +1,12 @@
+## [0.4.1](https://github.com/pcha/foodsense/compare/v0.4.0...v0.4.1) (2026-05-02)
+
+
+### Bug Fixes
+
+* suppress MissingPermission lint in notification worker ([0687e07](https://github.com/pcha/foodsense/commit/0687e0722b9f857fe2f1101ea1ba798f810ae657))
+
+
+
 # [0.4.0](https://github.com/pcha/foodsense/compare/v0.3.0...v0.4.0) (2026-05-02)
 
 
