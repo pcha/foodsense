@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
@@ -38,10 +40,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -152,6 +156,22 @@ internal fun ProductScreen(
             }
         }
     ) { innerPadding ->
+        val today = remember { LocalDate.now() }
+        val (withExpiry, noExpiry) = remember(items) {
+            items.partition { it.items.first().expirationDate != null }
+        }
+        val (expired, active) = remember(withExpiry) {
+            withExpiry.partition { it.items.first().expirationDate!!.isBefore(today) }
+        }
+        val (expiringSoon, ok) = remember(active) {
+            active.partition { product ->
+                ChronoUnit.DAYS.between(today, product.items.first().expirationDate!!) <= ExpiryThresholds.WARNING_DAYS
+            }
+        }
+        var expiringSoonExpanded by rememberSaveable { mutableStateOf(true) }
+        var okExpanded by rememberSaveable { mutableStateOf(true) }
+        var noExpiryExpanded by rememberSaveable { mutableStateOf(false) }
+        var expiredExpanded by rememberSaveable { mutableStateOf(false) }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
@@ -162,15 +182,95 @@ internal fun ProductScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(items) { product ->
-                ProductCard(
-                    product = product,
-                    onEdit = { onEditProduct(product) },
-                    onQuickAdd = { onQuickAdd(product) },
-                    onDeleteItem = onDeleteItem,
-                    onDeleteItems = onDeleteItems,
-                    onEditGroup = onEditGroup,
-                )
+            if (expired.isNotEmpty()) {
+                item(key = "expired_header") {
+                    CollapsableSectionHeader(
+                        title = stringResource(R.string.section_expired),
+                        count = expired.size,
+                        expanded = expiredExpanded,
+                        onToggle = { expiredExpanded = !expiredExpanded },
+                        titleColor = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (expiredExpanded) {
+                    items(expired, key = { it.uid }) { product ->
+                        ProductCard(
+                            product = product,
+                            onEdit = { onEditProduct(product) },
+                            onQuickAdd = { onQuickAdd(product) },
+                            onDeleteItem = onDeleteItem,
+                            onDeleteItems = onDeleteItems,
+                            onEditGroup = onEditGroup,
+                        )
+                    }
+                }
+            }
+            if (expiringSoon.isNotEmpty()) {
+                item(key = "expiring_soon_header") {
+                    CollapsableSectionHeader(
+                        title = stringResource(R.string.section_expiring_soon),
+                        count = expiringSoon.size,
+                        expanded = expiringSoonExpanded,
+                        onToggle = { expiringSoonExpanded = !expiringSoonExpanded },
+                        titleColor = ExpiryColorUrgent,
+                    )
+                }
+                if (expiringSoonExpanded) {
+                    items(expiringSoon, key = { it.uid }) { product ->
+                        ProductCard(
+                            product = product,
+                            onEdit = { onEditProduct(product) },
+                            onQuickAdd = { onQuickAdd(product) },
+                            onDeleteItem = onDeleteItem,
+                            onDeleteItems = onDeleteItems,
+                            onEditGroup = onEditGroup,
+                        )
+                    }
+                }
+            }
+            if (noExpiry.isNotEmpty()) {
+                item(key = "no_expiry_header") {
+                    CollapsableSectionHeader(
+                        title = stringResource(R.string.section_no_expiry),
+                        count = noExpiry.size,
+                        expanded = noExpiryExpanded,
+                        onToggle = { noExpiryExpanded = !noExpiryExpanded },
+                    )
+                }
+                if (noExpiryExpanded) {
+                    items(noExpiry, key = { it.uid }) { product ->
+                        ProductCard(
+                            product = product,
+                            onEdit = { onEditProduct(product) },
+                            onQuickAdd = { onQuickAdd(product) },
+                            onDeleteItem = onDeleteItem,
+                            onDeleteItems = onDeleteItems,
+                            onEditGroup = onEditGroup,
+                        )
+                    }
+                }
+            }
+            if (ok.isNotEmpty()) {
+                item(key = "ok_header") {
+                    CollapsableSectionHeader(
+                        title = stringResource(R.string.section_ok),
+                        count = ok.size,
+                        expanded = okExpanded,
+                        onToggle = { okExpanded = !okExpanded },
+                    )
+                }
+                if (okExpanded) {
+                    items(ok, key = { it.uid }) { product ->
+                        ProductCard(
+                            product = product,
+                            onEdit = { onEditProduct(product) },
+                            onQuickAdd = { onQuickAdd(product) },
+                            onDeleteItem = onDeleteItem,
+                            onDeleteItems = onDeleteItems,
+                            onEditGroup = onEditGroup,
+                        )
+                    }
+                }
             }
         }
     }
@@ -202,6 +302,38 @@ internal fun ProductScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun CollapsableSectionHeader(
+    title: String,
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    titleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        HorizontalDivider(modifier = Modifier.weight(1f))
+        Text(
+            "$title ($count)",
+            style = MaterialTheme.typography.labelMedium,
+            color = titleColor,
+        )
+        Icon(
+            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = null,
+            tint = titleColor,
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f))
     }
 }
 
@@ -412,6 +544,8 @@ private fun AddProductForm(
 ) {
     var showDatePicker by remember { mutableStateOf(false) }
     val formatter = remember { DateTimeFormatter.ofPattern("dd MMM yyyy") }
+    val today = remember { LocalDate.now() }
+    val resources = LocalContext.current.resources
 
     val showName = !isEditingGroup
     val nameEditable = !isEditingProduct && !isQuickAdd
@@ -467,6 +601,16 @@ private fun AddProductForm(
             }
         }
         if (showQtyUnitDate) {
+            if (showBatchCount) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = batchCount,
+                    onValueChange = onBatchCountChange,
+                    label = { Text(stringResource(R.string.field_number_of_items)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -484,16 +628,6 @@ private fun AddProductForm(
                     selected = unit,
                     onSelected = onUnitChange,
                     modifier = Modifier.width(100.dp),
-                )
-            }
-            if (showBatchCount) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = batchCount,
-                    onValueChange = onBatchCountChange,
-                    label = { Text(stringResource(R.string.field_number_of_items)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
             }
             if (showApplyCount) {
@@ -524,6 +658,19 @@ private fun AddProductForm(
                 ) {
                     Text(stringResource(R.string.btn_pick_date))
                 }
+            }
+            if (expirationDate != null) {
+                val daysUntil = ChronoUnit.DAYS.between(today, expirationDate)
+                Text(
+                    expiryLabel(daysUntil, expirationDate, today, resources),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when {
+                        daysUntil < 0 -> MaterialTheme.colorScheme.error
+                        daysUntil <= ExpiryThresholds.URGENT_DAYS -> ExpiryColorUrgent
+                        daysUntil <= ExpiryThresholds.WARNING_DAYS -> ExpiryColorWarning
+                        else -> Color.Unspecified
+                    },
+                )
             }
         }
         Button(

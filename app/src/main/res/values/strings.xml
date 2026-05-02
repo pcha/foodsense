@@ -36,6 +36,12 @@
     <string name="dialog_delete_title">How many to remove?</string>
     <string name="dialog_delete_count_label">Count (max %1$d)</string>
 
+    <!-- Section headers -->
+    <string name="section_expiring_soon">Expiring soon</string>
+    <string name="section_ok">Remaining</string>
+    <string name="section_no_expiry">No expiry date</string>
+    <string name="section_expired">Expired</string>
+
     <!-- Added labels -->
     <string name="added_today">Added today</string>
     <string name="added_yesterday">Added yesterday</string>

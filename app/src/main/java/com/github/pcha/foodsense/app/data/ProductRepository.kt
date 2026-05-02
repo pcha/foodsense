@@ -54,7 +54,9 @@ class DefaultProductRepository @Inject constructor(
                         )
                         .map { Item(it.uid, it.productId, it.quantity, it.unit, it.expirationDate, it.addedAt) },
                 )
-            }
+            }.sortedWith(
+                compareBy(nullsLast(naturalOrder())) { product: Product -> product.items.first().expirationDate }
+            )
         }
 
     override val productNames: Flow<List<String>> = productDao.getAllProductNames()
