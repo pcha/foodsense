@@ -16,4 +16,59 @@
 
 <resources>
     <string name="app_name">FoodSense</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">Expiration Alerts</string>
+    <string name="notification_title_singular">1 product expires tomorrow</string>
+    <string name="notification_title_plural">%1$d products expire tomorrow</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_add_product">Add product</string>
+    <string name="cd_add_items">Add items</string>
+    <string name="cd_edit_product">Edit</string>
+    <string name="cd_edit_group">Edit group</string>
+    <string name="cd_delete">Delete</string>
+
+    <!-- Product card -->
+    <string name="label_added_date">Added: %1$s</string>
+
+    <!-- Delete dialog -->
+    <string name="dialog_delete_title">How many to remove?</string>
+    <string name="dialog_delete_count_label">Count (max %1$d)</string>
+
+    <!-- Expiry labels -->
+    <string name="expiry_today">Expires today</string>
+    <string name="expiry_tomorrow">Expires tomorrow</string>
+    <string name="expired_yesterday">Expired yesterday</string>
+    <string name="expiry_in">Expires in %1$s</string>
+    <string name="expired_ago">Expired %1$s ago</string>
+    <string name="expiry_and">%1$s and %2$s</string>
+
+    <!-- Form fields -->
+    <string name="field_product_name">Product name</string>
+    <string name="field_quantity">Quantity</string>
+    <string name="field_number_of_items">Number of items</string>
+    <string name="field_apply_to_how_many">Apply to how many? (max %1$d)</string>
+    <string name="field_expiration_date">Expiration date (optional)</string>
+    <string name="btn_pick_date">Pick date</string>
+    <string name="btn_ok">OK</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_remove">Remove</string>
+    <string name="btn_save_changes">Save changes</string>
+    <string name="btn_add_product">Add product</string>
+    <string name="field_unit">Unit</string>
+
+    <!-- Expiry plurals -->
+    <plurals name="expiry_days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="expiry_months">
+        <item quantity="one">%1$d month</item>
+        <item quantity="other">%1$d months</item>
+    </plurals>
+    <plurals name="expiry_years">
+        <item quantity="one">%1$d year</item>
+        <item quantity="other">%1$d years</item>
+    </plurals>
 </resources>

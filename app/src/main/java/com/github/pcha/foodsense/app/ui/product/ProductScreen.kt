@@ -46,6 +46,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -53,6 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
+import android.content.res.Resources
+import com.github.pcha.foodsense.app.R
 import com.github.pcha.foodsense.app.data.ExpiryThresholds
 import com.github.pcha.foodsense.app.data.Item
 import com.github.pcha.foodsense.app.data.Product
@@ -144,7 +148,7 @@ internal fun ProductScreen(
         modifier = modifier,
         floatingActionButton = {
             FloatingActionButton(onClick = onOpenAddSheet) {
-                Icon(Icons.Default.Add, contentDescription = "Add product")
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.cd_add_product))
             }
         }
     ) { innerPadding ->
@@ -213,6 +217,7 @@ private fun ProductCard(
 ) {
     val formatter = remember { DateTimeFormatter.ofPattern("dd MMM yyyy") }
     val today = remember { LocalDate.now() }
+    val resources = LocalContext.current.resources
     val itemGroups = remember(product.items) {
         product.items.groupBy { Triple(it.quantity, it.unit, it.expirationDate) }.entries.toList()
     }
@@ -227,10 +232,10 @@ private fun ProductCard(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onQuickAdd) {
-                    Icon(Icons.Default.Add, contentDescription = "Add items")
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.cd_add_items))
                 }
                 IconButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit")
+                    Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.cd_edit_product))
                 }
             }
             itemGroups.forEachIndexed { index, (key, groupItems) ->
@@ -251,23 +256,23 @@ private fun ProductCard(
                                 else -> Color.Unspecified
                             }
                             Text(
-                                expiryLabel(daysUntil, date, today),
+                                expiryLabel(daysUntil, date, today, resources),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = expiryColor,
                                 fontWeight = if (expiryColor != Color.Unspecified) FontWeight.Bold else null,
                             )
                         } else {
-                            Text("Added: ${groupItems.first().addedAt.format(formatter)}", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.label_added_date, groupItems.first().addedAt.format(formatter)), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     IconButton(onClick = { onEditGroup(groupItems) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit group")
+                        Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.cd_edit_group))
                     }
                     IconButton(onClick = {
                         if (groupItems.size == 1) onDeleteItem(groupItems.first().uid)
                         else deleteGroupItems = groupItems
                     }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete")
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.cd_delete))
                     }
                 }
             }
@@ -296,7 +301,7 @@ private fun DeleteCountDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("How many to remove?") },
+        title = { Text(stringResource(R.string.dialog_delete_title)) },
         text = {
             OutlinedTextField(
                 value = count,
@@ -306,7 +311,7 @@ private fun DeleteCountDialog(
                         if (n == null || n in 1..groupSize) count = value
                     }
                 },
-                label = { Text("Count (max $groupSize)") },
+                label = { Text(stringResource(R.string.dialog_delete_count_label, groupSize)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
@@ -316,11 +321,11 @@ private fun DeleteCountDialog(
                 onClick = { onConfirm(count.toIntOrNull()?.coerceIn(1, groupSize) ?: 1) },
                 enabled = count.toIntOrNull()?.let { it in 1..groupSize } == true,
             ) {
-                Text("Remove")
+                Text(stringResource(R.string.btn_remove))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel)) }
         },
     )
 }
@@ -331,7 +336,7 @@ private fun quantityLabel(count: Int, quantity: Float, unit: ProductUnit?): Stri
     return if (count > 1) "$count × $base" else base
 }
 
-private fun expiryLabel(daysUntil: Long, date: LocalDate, today: LocalDate): String {
+private fun expiryLabel(daysUntil: Long, date: LocalDate, today: LocalDate, resources: Resources): String {
     val isPast = daysUntil < 0
     val ref = if (isPast) date else today
     val target = if (isPast) today else date
@@ -340,32 +345,30 @@ private fun expiryLabel(daysUntil: Long, date: LocalDate, today: LocalDate): Str
     val months = ChronoUnit.MONTHS.between(ref, target)
     val days = if (isPast) -daysUntil else daysUntil
 
-    fun plural(n: Long, unit: String) = "$n $unit${if (n == 1L) "" else "s"}"
+    fun qty(n: Long, pluralsId: Int) = resources.getQuantityString(pluralsId, n.toInt(), n)
 
     val magnitude = when {
         years >= 1L -> {
             val remMonths = ChronoUnit.MONTHS.between(ref.plusYears(years), target)
-            buildString {
-                append(plural(years, "year"))
-                if (remMonths > 0L) append(" and ${plural(remMonths, "month")}")
-            }
+            val yearsStr = qty(years, R.plurals.expiry_years)
+            if (remMonths > 0L) resources.getString(R.string.expiry_and, yearsStr, qty(remMonths, R.plurals.expiry_months))
+            else yearsStr
         }
         months >= 1L -> {
             val remDays = ChronoUnit.DAYS.between(ref.plusMonths(months), target)
-            buildString {
-                append(plural(months, "month"))
-                if (remDays > 0L) append(" and ${plural(remDays, "day")}")
-            }
+            val monthsStr = qty(months, R.plurals.expiry_months)
+            if (remDays > 0L) resources.getString(R.string.expiry_and, monthsStr, qty(remDays, R.plurals.expiry_days))
+            else monthsStr
         }
-        else -> plural(days, "day")
+        else -> qty(days, R.plurals.expiry_days)
     }
 
     return when {
-        daysUntil == 0L  -> "Expires today"
-        daysUntil == 1L  -> "Expires tomorrow"
-        daysUntil == -1L -> "Expired yesterday"
-        isPast           -> "Expired $magnitude ago"
-        else             -> "Expires in $magnitude"
+        daysUntil == 0L  -> resources.getString(R.string.expiry_today)
+        daysUntil == 1L  -> resources.getString(R.string.expiry_tomorrow)
+        daysUntil == -1L -> resources.getString(R.string.expired_yesterday)
+        isPast           -> resources.getString(R.string.expired_ago, magnitude)
+        else             -> resources.getString(R.string.expiry_in, magnitude)
     }
 }
 
@@ -413,7 +416,7 @@ private fun AddProductForm(
         isEditingProduct -> name.isNotBlank()
         else -> name.isNotBlank() && (quantity.toFloatOrNull() ?: 0f) > 0f
     }
-    val saveLabel = if (isEditingProduct || isEditingGroup) "Save changes" else "Add product"
+    val saveLabel = if (isEditingProduct || isEditingGroup) stringResource(R.string.btn_save_changes) else stringResource(R.string.btn_add_product)
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (showName) {
@@ -435,7 +438,7 @@ private fun AddProductForm(
                             nameDropdownExpanded = true
                         }
                     },
-                    label = { Text("Product name") },
+                    label = { Text(stringResource(R.string.field_product_name)) },
                     singleLine = true,
                     readOnly = !nameEditable,
                 )
@@ -465,7 +468,7 @@ private fun AddProductForm(
                     modifier = Modifier.weight(1f),
                     value = quantity,
                     onValueChange = onQuantityChange,
-                    label = { Text("Quantity") },
+                    label = { Text(stringResource(R.string.field_quantity)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
@@ -480,7 +483,7 @@ private fun AddProductForm(
                     modifier = Modifier.fillMaxWidth(),
                     value = batchCount,
                     onValueChange = onBatchCountChange,
-                    label = { Text("Number of items") },
+                    label = { Text(stringResource(R.string.field_number_of_items)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
@@ -490,7 +493,7 @@ private fun AddProductForm(
                     modifier = Modifier.fillMaxWidth(),
                     value = applyCount,
                     onValueChange = onApplyCountChange,
-                    label = { Text("Apply to how many? (max $maxApplyCount)") },
+                    label = { Text(stringResource(R.string.field_apply_to_how_many, maxApplyCount)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
@@ -504,14 +507,14 @@ private fun AddProductForm(
                     value = expirationDate?.format(formatter) ?: "",
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Expiration date (optional)") },
+                    label = { Text(stringResource(R.string.field_expiration_date)) },
                     singleLine = true,
                 )
                 OutlinedButton(
                     onClick = { showDatePicker = true },
                     modifier = Modifier.padding(top = 8.dp),
                 ) {
-                    Text("Pick date")
+                    Text(stringResource(R.string.btn_pick_date))
                 }
             }
         }
@@ -536,12 +539,12 @@ private fun AddProductForm(
                     }
                     showDatePicker = false
                 }) {
-                    Text("OK")
+                    Text(stringResource(R.string.btn_ok))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             },
         ) {
@@ -570,7 +573,7 @@ private fun UnitDropdown(
             value = selected?.displayLabel() ?: "—",
             onValueChange = {},
             readOnly = true,
-            label = { Text("Unit") },
+            label = { Text(stringResource(R.string.field_unit)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             singleLine = true,
         )

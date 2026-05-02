@@ -37,9 +37,9 @@ class ExpirationNotificationWorker @AssistedInject constructor(
         if (!notificationManager.areNotificationsEnabled()) return
 
         val title = if (productNames.size == 1) {
-            "1 product expires tomorrow"
+            applicationContext.getString(R.string.notification_title_singular)
         } else {
-            "${productNames.size} products expire tomorrow"
+            applicationContext.getString(R.string.notification_title_plural, productNames.size)
         }
         val body = productNames.joinToString(", ")
 

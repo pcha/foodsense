@@ -9,6 +9,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.github.pcha.foodsense.app.notification.ExpirationNotificationWorker
+import com.github.pcha.foodsense.app.R
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -30,7 +31,7 @@ class FoodSense : Application(), Configuration.Provider {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             EXPIRATION_CHANNEL_ID,
-            "Expiration Alerts",
+            getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_DEFAULT,
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
