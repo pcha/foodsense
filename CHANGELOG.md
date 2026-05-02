@@ -1,3 +1,12 @@
+# [0.6.0](https://github.com/pcha/foodsense/compare/v0.5.0...v0.6.0) (2026-05-02)
+
+
+### Features
+
+* **ui:** show relative added date when no expiration date is set ([f04a710](https://github.com/pcha/foodsense/commit/f04a710e0205abf09254a83c4ca92d062b5b088f))
+
+
+
 # [0.5.0](https://github.com/pcha/foodsense/compare/v0.4.1...v0.5.0) (2026-05-02)
 
 
