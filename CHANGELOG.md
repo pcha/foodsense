@@ -1,3 +1,12 @@
+## [0.7.1](https://github.com/pcha/foodsense/compare/v0.7.0...v0.7.1) (2026-05-04)
+
+
+### Bug Fixes
+
+* resolve compiler errors and IDE warnings in ProductScreen ([ce77148](https://github.com/pcha/foodsense/commit/ce771480115729028c8efc90f800f75ce514f400))
+
+
+
 # [0.7.0](https://github.com/pcha/foodsense/compare/v0.6.0...v0.7.0) (2026-05-02)
 
 
