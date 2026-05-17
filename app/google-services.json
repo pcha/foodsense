@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "644614049857",
+    "project_id": "foodsense-495318",
+    "storage_bucket": "foodsense-495318.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:644614049857:android:69d1f2f7f86def461eb6c0",
+        "android_client_info": {
+          "package_name": "com.github.pcha.foodsense.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzYI6y8nsmK8kvmKl99F2ykW-ddIfp600"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
