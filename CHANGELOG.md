@@ -1,3 +1,12 @@
+# [0.8.0](https://github.com/pcha/foodsense/compare/v0.7.1...v0.8.0) (2026-05-17)
+
+
+### Features
+
+* **scan:** add barcode scanner, OCR date scanner, and barcode registry ([00b7d11](https://github.com/pcha/foodsense/commit/00b7d119eb610f78b2cfae8aa4279e57d895ba01))
+
+
+
 ## [0.7.1](https://github.com/pcha/foodsense/compare/v0.7.0...v0.7.1) (2026-05-04)
 
 
