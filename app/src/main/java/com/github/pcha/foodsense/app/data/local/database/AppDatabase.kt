@@ -5,6 +5,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.github.pcha.foodsense.app.data.barcode.BarcodeEntry
+import com.github.pcha.foodsense.app.data.barcode.BarcodeRegistryDao
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -62,9 +64,22 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
-@Database(entities = [ProductEntity::class, ItemEntity::class], version = 4)
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE barcode_registry (
+                barcode TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                quantity TEXT
+            )
+        """.trimIndent())
+    }
+}
+
+@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class], version = 5)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
     abstract fun itemDao(): ItemDao
+    abstract fun barcodeRegistryDao(): BarcodeRegistryDao
 }

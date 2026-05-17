@@ -19,6 +19,9 @@ import org.junit.Test
 import com.github.pcha.foodsense.app.data.Item
 import com.github.pcha.foodsense.app.data.Product
 import com.github.pcha.foodsense.app.data.ProductRepository
+import com.github.pcha.foodsense.app.data.barcode.BarcodeProduct
+import com.github.pcha.foodsense.app.data.barcode.BarcodeRepository
+import com.github.pcha.foodsense.app.data.barcode.BarcodeResult
 import com.github.pcha.foodsense.app.data.local.database.ProductUnit
 import java.time.LocalDate
 
@@ -39,14 +42,14 @@ class ProductViewModelTest {
 
     @Test
     fun uiState_initiallyLoading() = runTest {
-        val viewModel = ProductViewModel(FakeProductRepository())
+        val viewModel = ProductViewModel(FakeProductRepository(), FakeBarcodeRepository())
         assertTrue(viewModel.uiState.value.isLoading)
     }
 
     @Test
     fun uiState_whenRepositoryEmits_isSuccess() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val today = LocalDate.now()
         val product = Product(0, "Milk", listOf(Item(0, 0, 1f, ProductUnit.L, today, today)))
         repo.emit(listOf(product))
@@ -58,7 +61,7 @@ class ProductViewModelTest {
 
     @Test
     fun addProduct_validInput_addsToList() = runTest {
-        val viewModel = ProductViewModel(FakeProductRepository())
+        val viewModel = ProductViewModel(FakeProductRepository(), FakeBarcodeRepository())
 
         viewModel.onFormNameChange("Bread")
         viewModel.onFormQuantityChange("1")
@@ -71,7 +74,7 @@ class ProductViewModelTest {
 
     @Test
     fun addProduct_withBatchCount_createsMultipleItems() = runTest {
-        val viewModel = ProductViewModel(FakeProductRepository())
+        val viewModel = ProductViewModel(FakeProductRepository(), FakeBarcodeRepository())
         val date = LocalDate.now().plusDays(5)
 
         viewModel.onFormNameChange("Milk")
@@ -92,7 +95,7 @@ class ProductViewModelTest {
     @Test
     fun deleteItem_removesFromList() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val today = LocalDate.now()
         val item = Item(0, 0, 12f, null, null, today)
         repo.emit(listOf(Product(0, "Eggs", listOf(item))))
@@ -104,7 +107,7 @@ class ProductViewModelTest {
 
     @Test
     fun openEditSheet_preloadsForm() = runTest {
-        val viewModel = ProductViewModel(FakeProductRepository())
+        val viewModel = ProductViewModel(FakeProductRepository(), FakeBarcodeRepository())
         val product = Product(1, "Milk", emptyList())
 
         viewModel.openEditSheet(product)
@@ -117,7 +120,7 @@ class ProductViewModelTest {
     @Test
     fun addProduct_inEditMode_updatesProductName() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val today = LocalDate.now()
         val item = Item(0, 0, 1f, ProductUnit.L, today, today)
         repo.emit(listOf(Product(0, "Milk", listOf(item))))
@@ -134,7 +137,7 @@ class ProductViewModelTest {
     @Test
     fun openQuickAddSheet_preloadsName() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val today = LocalDate.now()
         repo.emit(listOf(Product(1, "Milk", listOf(Item(1, 1, 1f, ProductUnit.L, today, today)))))
 
@@ -148,7 +151,7 @@ class ProductViewModelTest {
     @Test
     fun addProduct_inQuickAddMode_addsItemToExistingProduct() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val today = LocalDate.now()
         repo.emit(listOf(Product(1, "Milk", listOf(Item(1, 1, 1f, ProductUnit.L, today, today)))))
 
@@ -164,7 +167,7 @@ class ProductViewModelTest {
     @Test
     fun openEditItemSheet_preloadsGroupValues() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val date = LocalDate.now().plusDays(10)
         val items = listOf(
             Item(1, 1, 1f, ProductUnit.L, date, LocalDate.now()),
@@ -186,7 +189,7 @@ class ProductViewModelTest {
     @Test
     fun addProduct_inEditGroupMode_updatesAllItems() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val today = LocalDate.now()
         val newDate = today.plusDays(30)
         val items = listOf(
@@ -207,7 +210,7 @@ class ProductViewModelTest {
     @Test
     fun deleteItems_removesMultipleFromGroup() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val today = LocalDate.now()
         val items = listOf(
             Item(1, 1, 1f, ProductUnit.L, today, today),
@@ -226,7 +229,7 @@ class ProductViewModelTest {
     @Test
     fun addProduct_inEditGroupMode_partialCount_updatesOnlyN() = runTest {
         val repo = FakeProductRepository()
-        val viewModel = ProductViewModel(repo)
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository())
         val today = LocalDate.now()
         val newDate = today.plusDays(90)
         val items = listOf(
@@ -298,4 +301,10 @@ private class FakeProductRepository : ProductRepository {
     override suspend fun deleteProduct(productId: Int) {
         _products.value = (_products.value ?: emptyList()).filter { it.uid != productId }
     }
+}
+
+private class FakeBarcodeRepository : BarcodeRepository {
+    override suspend fun lookup(barcode: String): BarcodeResult? = null
+    override suspend fun save(barcode: String, product: BarcodeProduct) {}
+    override suspend fun delete(barcode: String) {}
 }

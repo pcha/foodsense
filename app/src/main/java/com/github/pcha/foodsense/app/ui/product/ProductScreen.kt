@@ -2,6 +2,7 @@ package com.github.pcha.foodsense.app.ui.product
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,8 +16,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
@@ -28,6 +32,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +82,7 @@ private val ExpiryColorWarning = Color(0xFF4CAF50)
 
 @Composable
 fun ProductScreen(
+    onScan: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ProductViewModel = hiltViewModel(),
 ) {
@@ -109,7 +115,17 @@ fun ProductScreen(
         onFormApplyCountChange = viewModel::onFormApplyCountChange,
         formDate = uiState.formExpirationDate,
         onFormDateSelected = viewModel::onFormDateSelected,
+        pendingBarcode = uiState.pendingBarcode,
+        originalFormName = uiState.originalFormName,
+        rememberBarcode = uiState.rememberBarcode,
+        onRememberBarcodeChange = viewModel::setRememberBarcode,
+        showDateScanner = uiState.showDateScanner,
+        dateScanError = uiState.dateScanError,
+        onOpenDateScanner = viewModel::openDateScanner,
+        onDismissDateScanner = viewModel::dismissDateScanner,
+        onDateImageCaptured = viewModel::processCapturedDateImage,
         onSave = viewModel::addProduct,
+        onScan = onScan,
         modifier = modifier,
     )
 }
@@ -143,14 +159,32 @@ internal fun ProductScreen(
     onFormApplyCountChange: (String) -> Unit,
     formDate: LocalDate?,
     onFormDateSelected: (LocalDate) -> Unit,
+    pendingBarcode: String?,
+    originalFormName: String?,
+    rememberBarcode: Boolean,
+    onRememberBarcodeChange: (Boolean) -> Unit,
+    showDateScanner: Boolean,
+    dateScanError: Boolean,
+    onOpenDateScanner: () -> Unit,
+    onDismissDateScanner: () -> Unit,
+    onDateImageCaptured: (android.graphics.Bitmap) -> Unit,
     onSave: () -> Unit,
+    onScan: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier,
         floatingActionButton = {
-            FloatingActionButton(onClick = onOpenAddSheet) {
-                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.cd_add_product))
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.End,
+            ) {
+                SmallFloatingActionButton(onClick = onScan) {
+                    Icon(painterResource(R.drawable.ic_barcode), contentDescription = "Escanear producto")
+                }
+                FloatingActionButton(onClick = onOpenAddSheet) {
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.cd_add_product))
+                }
             }
         }
     ) { innerPadding ->
@@ -293,6 +327,11 @@ internal fun ProductScreen(
                 maxApplyCount = maxApplyCount,
                 expirationDate = formDate,
                 onDateSelected = onFormDateSelected,
+                onOpenDateScanner = onOpenDateScanner,
+                pendingBarcode = pendingBarcode,
+                originalFormName = originalFormName,
+                rememberBarcode = rememberBarcode,
+                onRememberBarcodeChange = onRememberBarcodeChange,
                 isEditingProduct = isEditingProduct,
                 isQuickAdd = isQuickAdd,
                 isEditingGroup = isEditingGroup,
@@ -300,6 +339,14 @@ internal fun ProductScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
+    }
+
+    if (showDateScanner) {
+        DateScanSheet(
+            error = dateScanError,
+            onImageCaptured = onDateImageCaptured,
+            onDismiss = onDismissDateScanner,
+        )
     }
 }
 
@@ -533,6 +580,11 @@ private fun AddProductForm(
     maxApplyCount: Int,
     expirationDate: LocalDate?,
     onDateSelected: (LocalDate) -> Unit,
+    onOpenDateScanner: () -> Unit,
+    pendingBarcode: String?,
+    originalFormName: String?,
+    rememberBarcode: Boolean,
+    onRememberBarcodeChange: (Boolean) -> Unit,
     isEditingProduct: Boolean,
     isQuickAdd: Boolean,
     isEditingGroup: Boolean,
@@ -639,6 +691,7 @@ private fun AddProductForm(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
                     modifier = Modifier.weight(1f),
@@ -648,11 +701,17 @@ private fun AddProductForm(
                     label = { Text(stringResource(R.string.field_expiration_date)) },
                     singleLine = true,
                 )
-                OutlinedButton(
+                IconButton(
                     onClick = { showDatePicker.value = true },
                     modifier = Modifier.padding(top = 8.dp),
                 ) {
-                    Text(stringResource(R.string.btn_pick_date))
+                    Icon(Icons.Default.DateRange, contentDescription = stringResource(R.string.btn_pick_date))
+                }
+                IconButton(
+                    onClick = onOpenDateScanner,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Icon(Icons.Default.PhotoCamera, contentDescription = "Escanear fecha")
                 }
             }
             if (expirationDate != null) {
@@ -667,6 +726,23 @@ private fun AddProductForm(
                         else -> Color.Unspecified
                     },
                 )
+            }
+        }
+        val showRememberCheckbox = pendingBarcode != null
+            && !isEditingProduct
+            && !isEditingGroup
+            && (originalFormName == null || name.trim() != originalFormName)
+        if (showRememberCheckbox) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Checkbox(
+                    checked = rememberBarcode,
+                    onCheckedChange = onRememberBarcodeChange,
+                )
+                Text("Recordar este código de barras", style = MaterialTheme.typography.bodyMedium)
             }
         }
         Button(
@@ -789,7 +865,17 @@ private fun ExpiryColorsPreview() {
             onFormApplyCountChange = {},
             formDate = null,
             onFormDateSelected = {},
+            pendingBarcode = null,
+            originalFormName = null,
+            rememberBarcode = true,
+            onRememberBarcodeChange = {},
+            showDateScanner = false,
+            dateScanError = false,
+            onOpenDateScanner = {},
+            onDismissDateScanner = {},
+            onDateImageCaptured = {},
             onSave = {},
+            onScan = {},
         )
     }
 }
@@ -825,7 +911,17 @@ private fun DefaultPreview() {
             onFormApplyCountChange = {},
             formDate = null,
             onFormDateSelected = {},
+            pendingBarcode = null,
+            originalFormName = null,
+            rememberBarcode = true,
+            onRememberBarcodeChange = {},
+            showDateScanner = false,
+            dateScanError = false,
+            onOpenDateScanner = {},
+            onDismissDateScanner = {},
+            onDateImageCaptured = {},
             onSave = {},
+            onScan = {},
         )
     }
 }
@@ -861,7 +957,17 @@ private fun EditGroupPreview() {
             onFormApplyCountChange = {},
             formDate = LocalDate.now().plusDays(5),
             onFormDateSelected = {},
+            pendingBarcode = null,
+            originalFormName = null,
+            rememberBarcode = true,
+            onRememberBarcodeChange = {},
+            showDateScanner = false,
+            dateScanError = false,
+            onOpenDateScanner = {},
+            onDismissDateScanner = {},
+            onDateImageCaptured = {},
             onSave = {},
+            onScan = {},
         )
     }
 }

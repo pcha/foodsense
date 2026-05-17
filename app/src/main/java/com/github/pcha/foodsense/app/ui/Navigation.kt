@@ -17,18 +17,21 @@
 package com.github.pcha.foodsense.app.ui
 
 import com.github.pcha.foodsense.app.ui.product.ProductScreen
+import com.github.pcha.foodsense.app.ui.product.ProductViewModel
+import com.github.pcha.foodsense.app.ui.scan.ScanScreen
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 
 @Composable
 fun MainNavigation() {
-
+    val productViewModel: ProductViewModel = hiltViewModel()
     val backStack = rememberNavBackStack(Main)
 
     NavDisplay(
@@ -37,7 +40,22 @@ fun MainNavigation() {
         entryProvider = entryProvider {
             entry<Main> {
                 ProductScreen(
-                    modifier = Modifier.safeDrawingPadding().padding(16.dp)
+                    viewModel = productViewModel,
+                    onScan = { backStack.add(Scan) },
+                    modifier = Modifier.safeDrawingPadding().padding(16.dp),
+                )
+            }
+            entry<Scan> {
+                ScanScreen(
+                    onResult = { barcode, name, quantity, unit, dateStr ->
+                        productViewModel.openAddSheetWithScanResult(barcode, name, quantity, unit, dateStr)
+                        backStack.removeLastOrNull()
+                    },
+                    onRejected = { barcode ->
+                        productViewModel.openAddSheetForManualEntry(barcode)
+                        backStack.removeLastOrNull()
+                    },
+                    onCancel = { backStack.removeLastOrNull() },
                 )
             }
         }

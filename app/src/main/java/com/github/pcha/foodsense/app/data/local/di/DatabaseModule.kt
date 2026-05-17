@@ -23,11 +23,13 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import com.github.pcha.foodsense.app.data.barcode.BarcodeRegistryDao
 import com.github.pcha.foodsense.app.data.local.database.AppDatabase
 import com.github.pcha.foodsense.app.data.local.database.ItemDao
 import com.github.pcha.foodsense.app.data.local.database.MIGRATION_1_2
 import com.github.pcha.foodsense.app.data.local.database.MIGRATION_2_3
 import com.github.pcha.foodsense.app.data.local.database.MIGRATION_3_4
+import com.github.pcha.foodsense.app.data.local.database.MIGRATION_4_5
 import com.github.pcha.foodsense.app.data.local.database.ProductDao
 import javax.inject.Singleton
 
@@ -46,12 +48,17 @@ class DatabaseModule {
     }
 
     @Provides
+    fun provideBarcodeRegistryDao(appDatabase: AppDatabase): BarcodeRegistryDao {
+        return appDatabase.barcodeRegistryDao()
+    }
+
+    @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext appContext: Context): AppDatabase {
         return Room.databaseBuilder(
             appContext,
             AppDatabase::class.java,
             "Product"
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
     }
 }

@@ -21,3 +21,6 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data object Main : NavKey
+
+@Serializable
+data object Scan : NavKey
