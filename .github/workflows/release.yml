@@ -36,6 +36,10 @@ jobs:
         if: steps.changelog.outputs.skipped == 'false'
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Write google-services.json
+        if: steps.changelog.outputs.skipped == 'false'
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/release/google-services.json
+
       - name: Build Release APK
         if: steps.changelog.outputs.skipped == 'false'
         run: |
