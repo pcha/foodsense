@@ -99,7 +99,7 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
-          packageName: com.github.pcha.foodsense.app
+          packageName: dev.pcha.foodsense.app
           releaseFiles: ${{ steps.sign.outputs.signedReleaseFile }}
           track: internal
           whatsNewDirectory: fastlane/metadata/android/en-US/changelogs

@@ -24,17 +24,17 @@ plugins {
 }
 
 android {
-    namespace = "com.github.pcha.foodsense.app"
+    namespace = "dev.pcha.foodsense.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.github.pcha.foodsense.app"
+        applicationId = "dev.pcha.foodsense.app"
         minSdk = 26
         targetSdk = 36
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("versionName") as String?) ?: "1.0"
 
-        testInstrumentationRunner = "com.github.pcha.foodsense.app.HiltTestRunner"
+        testInstrumentationRunner = "dev.pcha.foodsense.app.HiltTestRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -142,4 +142,17 @@ dependencies {
 
     // Coroutines Play Services (Task.await())
     implementation(libs.kotlinx.coroutines.play.services)
+
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth.ktx)
+    implementation(libs.firebase.firestore.ktx)
+
+    // Image loading
+    implementation(libs.coil.compose)
+
+    // Credential Manager (Google Sign-In)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.google.id.credential)
 }
