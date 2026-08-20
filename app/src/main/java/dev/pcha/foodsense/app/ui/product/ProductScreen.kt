@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -41,6 +42,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -74,7 +76,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.Dp
 import coil.compose.AsyncImage
-import com.google.firebase.auth.FirebaseUser
+import dev.pcha.foodsense.app.data.auth.User
 import dev.pcha.foodsense.app.R
 import kotlin.math.absoluteValue
 import dev.pcha.foodsense.app.data.ExpiryThresholds
@@ -93,7 +95,7 @@ private val ExpiryColorUrgent = Color(0xFFFF9800)
 private val ExpiryColorWarning = Color(0xFF4CAF50)
 
 @Composable
-private fun UserAvatar(user: FirebaseUser, size: Dp = 32.dp, modifier: Modifier = Modifier) {
+private fun UserAvatar(user: User, size: Dp = 32.dp, modifier: Modifier = Modifier) {
     val photoUrl = user.photoUrl
     if (photoUrl != null) {
         AsyncImage(
@@ -124,7 +126,7 @@ private fun UserAvatar(user: FirebaseUser, size: Dp = 32.dp, modifier: Modifier 
 @Composable
 fun ProductScreen(
     onScan: () -> Unit,
-    currentUser: FirebaseUser? = null,
+    currentUser: User? = null,
     onNavigateToLogin: () -> Unit = {},
     onSignOut: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -165,6 +167,7 @@ fun ProductScreen(
         onRememberBarcodeChange = viewModel::setRememberBarcode,
         showDateScanner = uiState.showDateScanner,
         dateScanError = uiState.dateScanError,
+        syncError = uiState.syncError,
         onOpenDateScanner = viewModel::openDateScanner,
         onDismissDateScanner = viewModel::dismissDateScanner,
         onDateImageCaptured = viewModel::processCapturedDateImage,
@@ -212,12 +215,13 @@ internal fun ProductScreen(
     onRememberBarcodeChange: (Boolean) -> Unit,
     showDateScanner: Boolean,
     dateScanError: Boolean,
+    syncError: Boolean = false,
     onOpenDateScanner: () -> Unit,
     onDismissDateScanner: () -> Unit,
     onDateImageCaptured: (android.graphics.Bitmap) -> Unit,
     onSave: () -> Unit,
     onScan: () -> Unit,
-    currentUser: FirebaseUser? = null,
+    currentUser: User? = null,
     onNavigateToLogin: () -> Unit = {},
     onSignOut: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -236,7 +240,10 @@ internal fun ProductScreen(
                         if (currentUser != null) {
                             UserAvatar(user = currentUser, size = 32.dp)
                         } else {
-                            Icon(Icons.Default.AccountCircle, contentDescription = "Cuenta")
+                            Icon(
+                                Icons.Default.AccountCircle,
+                                contentDescription = stringResource(R.string.cd_account),
+                            )
                         }
                     }
                     DropdownMenu(
@@ -251,7 +258,7 @@ internal fun ProductScreen(
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text("Cerrar sesión") },
+                            text = { Text(stringResource(R.string.account_sign_out)) },
                             onClick = {
                                 showAccountMenu = false
                                 onSignOut()
@@ -267,7 +274,7 @@ internal fun ProductScreen(
                 horizontalAlignment = Alignment.End,
             ) {
                 SmallFloatingActionButton(onClick = onScan) {
-                    Icon(painterResource(R.drawable.ic_barcode), contentDescription = "Escanear producto")
+                    Icon(painterResource(R.drawable.ic_barcode), contentDescription = stringResource(R.string.cd_scan_product))
                 }
                 FloatingActionButton(onClick = onOpenAddSheet) {
                     Icon(Icons.Default.Add, contentDescription = stringResource(R.string.cd_add_product))
@@ -301,6 +308,24 @@ internal fun ProductScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (syncError) {
+                item(key = "sync_error_banner") {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.CloudOff, contentDescription = null)
+                            Text(stringResource(R.string.sync_error))
+                        }
+                    }
+                }
+            }
             if (expired.isNotEmpty()) {
                 item(key = "expired_header") {
                     CollapsableSectionHeader(
@@ -456,7 +481,7 @@ private fun CollapsableSectionHeader(
     ) {
         HorizontalDivider(modifier = Modifier.weight(1f))
         Text(
-            "$title ($count)",
+            stringResource(R.string.section_header_with_count, title, count),
             style = MaterialTheme.typography.labelMedium,
             color = titleColor,
         )
@@ -509,7 +534,10 @@ private fun ProductCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(quantityLabel(groupItems.size, qty, unit), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            quantityLabel(groupItems.size, qty, unit, context),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                         if (date != null) {
                             val daysUntil = ChronoUnit.DAYS.between(today, date)
                             val expiryColor = when {
@@ -593,10 +621,11 @@ private fun DeleteCountDialog(
     )
 }
 
-private fun quantityLabel(count: Int, quantity: Float, unit: ProductUnit?): String {
+private fun quantityLabel(count: Int, quantity: Float, unit: ProductUnit?, context: Context): String {
     val qtyStr = if (quantity == quantity.toLong().toFloat()) quantity.toLong().toString() else quantity.toString()
-    val base = if (unit != null) "$qtyStr ${unit.displayLabel()}" else "Qty: $qtyStr"
-    return if (count > 1) "$count × $base" else base
+    val base = if (unit != null) "$qtyStr ${unit.displayLabel()}"
+    else context.getString(R.string.quantity_without_unit, qtyStr)
+    return if (count > 1) context.getString(R.string.quantity_multiplier, count, base) else base
 }
 
 private fun relativeMagnitude(from: LocalDate, to: LocalDate, context: Context): String {
@@ -798,7 +827,7 @@ private fun AddProductForm(
                     onClick = onOpenDateScanner,
                     modifier = Modifier.padding(top = 8.dp),
                 ) {
-                    Icon(Icons.Default.PhotoCamera, contentDescription = "Escanear fecha")
+                    Icon(Icons.Default.PhotoCamera, contentDescription = stringResource(R.string.cd_scan_date))
                 }
             }
             if (expirationDate != null) {
@@ -829,7 +858,7 @@ private fun AddProductForm(
                     checked = rememberBarcode,
                     onCheckedChange = onRememberBarcodeChange,
                 )
-                Text("Recordar este código de barras", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.remember_barcode), style = MaterialTheme.typography.bodyMedium)
             }
         }
         Button(

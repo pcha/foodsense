@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -84,7 +85,7 @@ fun LoginScreen(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
             )
@@ -131,7 +132,9 @@ private fun LoginContent(
         Spacer(Modifier.height(16.dp))
 
         Text(
-            text = if (mode == AuthMode.SIGN_IN) "Iniciar sesión" else "Crear cuenta",
+            text = stringResource(
+                if (mode == AuthMode.SIGN_IN) R.string.login_title_sign_in else R.string.login_title_register
+            ),
             style = MaterialTheme.typography.headlineMedium,
         )
 
@@ -149,7 +152,7 @@ private fun LoginContent(
                 tint = Color.Unspecified,
             )
             Spacer(Modifier.width(8.dp))
-            Text("Continuar con Google")
+            Text(stringResource(R.string.login_continue_with_google))
         }
 
         Row(
@@ -158,14 +161,14 @@ private fun LoginContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             HorizontalDivider(modifier = Modifier.weight(1f))
-            Text("o", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.login_divider_or), style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(modifier = Modifier.weight(1f))
         }
 
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
-            label = { Text("Correo electrónico") },
+            label = { Text(stringResource(R.string.login_email_label)) },
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             singleLine = true,
@@ -175,7 +178,7 @@ private fun LoginContent(
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Contraseña") },
+            label = { Text(stringResource(R.string.login_password_label)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             enabled = !uiState.isLoading,
@@ -185,7 +188,9 @@ private fun LoginContent(
                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
                     Icon(
                         if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = if (passwordVisible) "Ocultar contraseña" else "Mostrar contraseña",
+                        contentDescription = stringResource(
+                            if (passwordVisible) R.string.cd_hide_password else R.string.cd_show_password
+                        ),
                     )
                 }
             },
@@ -201,17 +206,19 @@ private fun LoginContent(
         ) {
             Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text(if (mode == AuthMode.SIGN_IN) "Iniciar sesión" else "Registrarse")
+            Text(stringResource(
+                if (mode == AuthMode.SIGN_IN) R.string.login_action_sign_in else R.string.login_action_register
+            ))
         }
 
         TextButton(
             onClick = { mode = if (mode == AuthMode.SIGN_IN) AuthMode.REGISTER else AuthMode.SIGN_IN },
             modifier = Modifier.align(Alignment.CenterHorizontally),
         ) {
-            Text(
-                if (mode == AuthMode.SIGN_IN) "¿No tenés cuenta? Registrate"
-                else "¿Ya tenés cuenta? Iniciá sesión"
-            )
+            Text(stringResource(
+                if (mode == AuthMode.SIGN_IN) R.string.login_switch_to_register
+                else R.string.login_switch_to_sign_in
+            ))
         }
 
         if (onContinueWithoutAccount != null) {
@@ -219,7 +226,7 @@ private fun LoginContent(
                 onClick = onContinueWithoutAccount,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Continuar sin cuenta")
+                Text(stringResource(R.string.login_continue_without_account))
             }
         }
     }

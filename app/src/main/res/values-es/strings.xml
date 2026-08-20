@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Español rioplatense (voseo), acorde a los textos originales de la app. -->
+<resources>
+
+    <!-- Notificaciones -->
+    <string name="notification_channel_name">Alertas de vencimiento</string>
+    <string name="notification_title_singular">1 producto vence mañana</string>
+    <string name="notification_title_plural">%1$d productos vencen mañana</string>
+
+    <!-- Descripciones de contenido -->
+    <string name="cd_add_product">Agregar producto</string>
+    <string name="cd_add_items">Agregar ítems</string>
+    <string name="cd_edit_product">Editar</string>
+    <string name="cd_edit_group">Editar grupo</string>
+    <string name="cd_delete">Eliminar</string>
+    <string name="cd_account">Cuenta</string>
+    <string name="cd_back">Volver</string>
+    <string name="cd_show_password">Mostrar contraseña</string>
+    <string name="cd_hide_password">Ocultar contraseña</string>
+    <string name="cd_scan_product">Escanear producto</string>
+    <string name="cd_scan_date">Escanear fecha</string>
+
+    <!-- Menú de cuenta -->
+    <string name="account_sign_out">Cerrar sesión</string>
+
+    <!-- Login -->
+    <string name="login_title_sign_in">Iniciar sesión</string>
+    <string name="login_title_register">Crear cuenta</string>
+    <string name="login_continue_with_google">Continuar con Google</string>
+    <string name="login_divider_or">o</string>
+    <string name="login_email_label">Correo electrónico</string>
+    <string name="login_password_label">Contraseña</string>
+    <string name="login_action_sign_in">Iniciar sesión</string>
+    <string name="login_action_register">Registrarse</string>
+    <string name="login_switch_to_register">¿No tenés cuenta? Registrate</string>
+    <string name="login_switch_to_sign_in">¿Ya tenés cuenta? Iniciá sesión</string>
+    <string name="login_continue_without_account">Continuar sin cuenta</string>
+
+    <!-- Cámara / escaneo -->
+    <string name="camera_permission_required">Se necesita permiso de cámara</string>
+    <string name="scan_confirm_product_question">¿Es este el producto?</string>
+    <string name="scan_confirm_yes">Sí, es correcto</string>
+    <string name="scan_confirm_no">No es correcto</string>
+    <string name="scan_photograph_label">Fotografiar etiqueta</string>
+    <string name="scan_take_photo">Tomar foto</string>
+    <string name="action_capture">Capturar</string>
+    <string name="date_scan_not_found">No se encontró ninguna fecha. Intentá de nuevo.</string>
+    <string name="remember_barcode">Recordar este código de barras</string>
+
+    <!-- Tarjeta de producto -->
+    <string name="label_added_date">Agregado: %1$s</string>
+    <string name="section_header_with_count">%1$s (%2$d)</string>
+    <string name="quantity_without_unit">Cant.: %1$s</string>
+    <string name="quantity_multiplier">%1$d × %2$s</string>
+
+    <!-- Diálogo de eliminación -->
+    <string name="dialog_delete_title">¿Cuántos querés sacar?</string>
+    <string name="dialog_delete_count_label">Cantidad (máx. %1$d)</string>
+
+    <!-- Sincronización -->
+    <string name="sync_error">No se pudo sincronizar con la nube. Los cambios están guardados en este dispositivo.</string>
+
+    <!-- Encabezados de sección -->
+    <string name="section_expiring_soon">Vencen pronto</string>
+    <string name="section_ok">Resto</string>
+    <string name="section_no_expiry">Sin fecha de vencimiento</string>
+    <string name="section_expired">Vencidos</string>
+
+    <!-- Etiquetas de agregado -->
+    <string name="added_today">Agregado hoy</string>
+    <string name="added_yesterday">Agregado ayer</string>
+    <string name="added_ago">Agregado hace %1$s</string>
+
+    <!-- Etiquetas de vencimiento -->
+    <string name="expiry_today">Vence hoy</string>
+    <string name="expiry_tomorrow">Vence mañana</string>
+    <string name="expired_yesterday">Venció ayer</string>
+    <string name="expiry_in">Vence en %1$s</string>
+    <string name="expired_ago">Venció hace %1$s</string>
+    <string name="expiry_and">%1$s y %2$s</string>
+
+    <!-- Campos del formulario -->
+    <string name="field_product_name">Nombre del producto</string>
+    <string name="field_quantity">Cantidad</string>
+    <string name="field_number_of_items">Cantidad de ítems</string>
+    <string name="field_apply_to_how_many">¿A cuántos aplicar? (máx. %1$d)</string>
+    <string name="field_expiration_date">Fecha de vencimiento (opcional)</string>
+    <string name="btn_pick_date">Elegir fecha</string>
+    <string name="btn_ok">Aceptar</string>
+    <string name="btn_cancel">Cancelar</string>
+    <string name="btn_remove">Sacar</string>
+    <string name="btn_save_changes">Guardar cambios</string>
+    <string name="btn_add_product">Agregar producto</string>
+    <string name="field_unit">Unidad</string>
+
+    <!-- Plurales de vencimiento -->
+    <plurals name="expiry_days">
+        <item quantity="one">%1$d día</item>
+        <item quantity="other">%1$d días</item>
+    </plurals>
+    <plurals name="expiry_months">
+        <item quantity="one">%1$d mes</item>
+        <item quantity="other">%1$d meses</item>
+    </plurals>
+    <plurals name="expiry_years">
+        <item quantity="one">%1$d año</item>
+        <item quantity="other">%1$d años</item>
+    </plurals>
+</resources>
