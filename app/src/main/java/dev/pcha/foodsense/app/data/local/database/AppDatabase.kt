@@ -83,7 +83,13 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
-@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class], version = 6)
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE product ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class], version = 7)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao

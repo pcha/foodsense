@@ -31,6 +31,7 @@ import dev.pcha.foodsense.app.data.local.database.MIGRATION_2_3
 import dev.pcha.foodsense.app.data.local.database.MIGRATION_3_4
 import dev.pcha.foodsense.app.data.local.database.MIGRATION_4_5
 import dev.pcha.foodsense.app.data.local.database.MIGRATION_5_6
+import dev.pcha.foodsense.app.data.local.database.MIGRATION_6_7
 import dev.pcha.foodsense.app.data.local.database.ProductDao
 import javax.inject.Singleton
 
@@ -60,6 +61,8 @@ class DatabaseModule {
             appContext,
             AppDatabase::class.java,
             "Product"
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
+        ).addMigrations(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+        ).build()
     }
 }

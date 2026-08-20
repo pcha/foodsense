@@ -36,6 +36,7 @@ class Converters {
 data class ProductEntity(
     val name: String,
     val serverId: String? = null,
+    val updatedAt: Long = 0L,
 ) {
     @PrimaryKey(autoGenerate = true)
     var uid: Int = 0
@@ -100,11 +101,20 @@ interface ProductDao {
     @Query("UPDATE product SET serverId = :serverId WHERE uid = :uid")
     suspend fun updateServerId(uid: Int, serverId: String)
 
+    @Query("UPDATE product SET updatedAt = :updatedAt WHERE uid = :uid")
+    suspend fun touchUpdatedAt(uid: Int, updatedAt: Long)
+
     @Query("SELECT * FROM product WHERE serverId = :serverId LIMIT 1")
     suspend fun findProductByServerId(serverId: String): ProductEntity?
 
+    @Query("SELECT * FROM product WHERE uid = :uid LIMIT 1")
+    suspend fun findProductById(uid: Int): ProductEntity?
+
     @Query("DELETE FROM product")
     suspend fun deleteAllProducts()
+
+    @Query("DELETE FROM product WHERE serverId IS NOT NULL")
+    suspend fun deleteSyncedProducts()
 }
 
 @Dao
