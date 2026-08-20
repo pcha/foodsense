@@ -48,7 +48,17 @@ class ProductScreenTest {
                 onFormApplyCountChange = {},
                 formDate = null,
                 onFormDateSelected = {},
+                pendingBarcode = null,
+                originalFormName = null,
+                rememberBarcode = true,
+                onRememberBarcodeChange = {},
+                showDateScanner = false,
+                dateScanError = false,
+                onOpenDateScanner = {},
+                onDismissDateScanner = {},
+                onDateImageCaptured = {},
                 onSave = {},
+                onScan = {},
             )
         }
     }
