@@ -9,10 +9,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import dev.pcha.foodsense.app.R
 import dev.pcha.foodsense.app.data.auth.AuthRepository
 import dev.pcha.foodsense.app.data.auth.FirebaseAuthRepository
-import dev.pcha.foodsense.app.data.auth.WebClientId
 import javax.inject.Singleton
 
 @Module
@@ -32,10 +30,5 @@ abstract class AuthModule {
         @Singleton
         fun provideCredentialManager(@ApplicationContext ctx: Context): CredentialManager =
             CredentialManager.create(ctx)
-
-        @Provides
-        @WebClientId
-        fun provideWebClientId(@ApplicationContext ctx: Context): String =
-            ctx.getString(R.string.default_web_client_id)
     }
 }

@@ -3,9 +3,10 @@ package dev.pcha.foodsense.app.ui.auth
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseUser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.pcha.foodsense.app.data.auth.AuthRepository
+import dev.pcha.foodsense.app.data.auth.User
+import dev.pcha.foodsense.app.data.preferences.OnboardingRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,13 +19,22 @@ import javax.inject.Inject
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    private val onboardingRepository: OnboardingRepository,
 ) : ViewModel() {
 
-    val currentUser: StateFlow<FirebaseUser?> = authRepository.currentUser
+    val currentUser: StateFlow<User?> = authRepository.currentUser
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // null = not loaded yet; consumers wait before deciding navigation gating.
+    val onboardingDone: StateFlow<Boolean?> = onboardingRepository.onboardingDone
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    fun completeOnboarding() {
+        viewModelScope.launch { onboardingRepository.setOnboardingDone() }
+    }
 
     fun signInWithGoogle(context: Context) {
         viewModelScope.launch {
