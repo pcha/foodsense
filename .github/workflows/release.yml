@@ -13,12 +13,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Sin este archivo el plugin de Google Services aborta con "Malformed root json", que no
+      # dice nada sobre la causa real. Mejor fallar acá con el motivo.
       - name: Write google-services.json (debug)
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" | base64 -d > app/google-services.json
+        run: |
+          if [ -z "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" ]; then
+            echo "::error::Falta el secret GOOGLE_SERVICES_JSON_DEBUG (base64 del google-services.json de debug, paquete dev.pcha.foodsense.app.dev)."
+            exit 1
+          fi
+          echo "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" | base64 -d > app/google-services.json
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - uses: gradle/actions/setup-gradle@v4
@@ -57,11 +64,11 @@ jobs:
           version-file: ./.version.yml
           skip-on-empty: false
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         if: steps.changelog.outputs.skipped == 'false'
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
