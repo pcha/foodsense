@@ -1,0 +1,18 @@
+{
+  "name": "foodsense-firebase",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Reglas de Firestore de FoodSense y sus tests contra el emulador.",
+  "scripts": {
+    "emulators": "firebase emulators:start --only firestore,auth",
+    "test": "firebase emulators:exec --only firestore \"vitest run\"",
+    "deploy": "firebase deploy --only firestore:rules"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "firebase": "^12.17.0",
+    "firebase-tools": "^15.25.1",
+    "vitest": "^4.1.10"
+  }
+}
