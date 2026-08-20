@@ -1,6 +1,8 @@
 package dev.pcha.foodsense.app.data.sync.di
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.firestoreSettings
+import com.google.firebase.firestore.persistentCacheSettings
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -21,6 +23,12 @@ abstract class SyncModule {
     companion object {
         @Provides
         @Singleton
-        fun provideFirestore(): FirebaseFirestore = FirebaseFirestore.getInstance()
+        fun provideFirestore(): FirebaseFirestore = FirebaseFirestore.getInstance().apply {
+            // Explicit disk-persistent cache: offline writes queue durably (survive app
+            // restart) and reads are served from cache when offline.
+            firestoreSettings = firestoreSettings {
+                setLocalCacheSettings(persistentCacheSettings {})
+            }
+        }
     }
 }

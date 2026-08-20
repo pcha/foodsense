@@ -2,8 +2,6 @@ package dev.pcha.foodsense.app.data.sync
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
-import dev.pcha.foodsense.app.data.local.database.ItemEntity
-import dev.pcha.foodsense.app.data.local.database.ProductEntity
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -18,30 +16,31 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
     private fun productsCollection(userId: String) =
         firestore.collection("users").document(userId).collection("products")
 
-    override suspend fun upsertProduct(
-        userId: String,
-        product: ProductEntity,
-        items: List<ItemEntity>,
-    ): String {
+    override suspend fun upsertProduct(userId: String, product: FirestoreProduct): FirestoreProduct {
+        val resolvedItems = product.items.map { item ->
+            if (item.id.isBlank()) item.copy(id = UUID.randomUUID().toString()) else item
+        }
         val data = mapOf(
             "name" to product.name,
-            "items" to items.map { item ->
+            "updatedAt" to product.updatedAt,
+            "items" to resolvedItems.map { item ->
                 mapOf(
-                    "id" to (item.serverId ?: UUID.randomUUID().toString()),
+                    "id" to item.id,
                     "quantity" to item.quantity,
-                    "unit" to item.unit?.name,
-                    "expirationDate" to item.expirationDate?.toEpochDay(),
-                    "addedAt" to item.addedAt.toEpochDay(),
+                    "unit" to item.unit,
+                    "expirationDate" to item.expirationDate,
+                    "addedAt" to item.addedAt,
                 )
             },
         )
         val collection = productsCollection(userId)
-        return if (product.serverId != null) {
+        val resolvedServerId = if (product.serverId.isNotBlank()) {
             collection.document(product.serverId).set(data, SetOptions.merge()).await()
             product.serverId
         } else {
             collection.add(data).await().id
         }
+        return product.copy(serverId = resolvedServerId, items = resolvedItems)
     }
 
     override suspend fun deleteProduct(userId: String, serverId: String) {
@@ -51,20 +50,26 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
     override suspend fun updateProductItems(
         userId: String,
         productServerId: String,
-        items: List<ItemEntity>,
-    ) {
+        items: List<FirestoreItem>,
+        updatedAt: Long,
+    ): List<FirestoreItem> {
+        val resolvedItems = items.map { item ->
+            if (item.id.isBlank()) item.copy(id = UUID.randomUUID().toString()) else item
+        }
         val data = mapOf(
-            "items" to items.map { item ->
+            "updatedAt" to updatedAt,
+            "items" to resolvedItems.map { item ->
                 mapOf(
-                    "id" to (item.serverId ?: UUID.randomUUID().toString()),
+                    "id" to item.id,
                     "quantity" to item.quantity,
-                    "unit" to item.unit?.name,
-                    "expirationDate" to item.expirationDate?.toEpochDay(),
-                    "addedAt" to item.addedAt.toEpochDay(),
+                    "unit" to item.unit,
+                    "expirationDate" to item.expirationDate,
+                    "addedAt" to item.addedAt,
                 )
             },
         )
         productsCollection(userId).document(productServerId).set(data, SetOptions.merge()).await()
+        return resolvedItems
     }
 
     override suspend fun fetchAll(userId: String): List<FirestoreProduct> {
@@ -75,7 +80,11 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
 
     override fun listenToChanges(userId: String): Flow<List<FirestoreProduct>> = callbackFlow {
         val listener = productsCollection(userId).addSnapshotListener { snapshot, error ->
-            if (error != null || snapshot == null) return@addSnapshotListener
+            if (error != null) {
+                close(error)
+                return@addSnapshotListener
+            }
+            if (snapshot == null) return@addSnapshotListener
             trySend(snapshot.documents.mapNotNull { it.toFirestoreProduct() })
         }
         awaitClose { listener.remove() }
@@ -94,6 +103,7 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
                 addedAt = (map["addedAt"] as? Number)?.toLong() ?: 0L,
             )
         }
-        return FirestoreProduct(serverId = id, name = name, items = items)
+        val updatedAt = (get("updatedAt") as? Number)?.toLong() ?: 0L
+        return FirestoreProduct(serverId = id, name = name, items = items, updatedAt = updatedAt)
     }
 }

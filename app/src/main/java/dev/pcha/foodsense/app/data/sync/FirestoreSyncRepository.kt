@@ -1,13 +1,12 @@
 package dev.pcha.foodsense.app.data.sync
 
-import dev.pcha.foodsense.app.data.local.database.ItemEntity
-import dev.pcha.foodsense.app.data.local.database.ProductEntity
 import kotlinx.coroutines.flow.Flow
 
 data class FirestoreProduct(
     val serverId: String,
     val name: String,
     val items: List<FirestoreItem>,
+    val updatedAt: Long = 0L,
 )
 
 data class FirestoreItem(
@@ -19,9 +18,13 @@ data class FirestoreItem(
 )
 
 interface FirestoreSyncRepository {
-    suspend fun upsertProduct(userId: String, product: ProductEntity, items: List<ItemEntity>): String
+    suspend fun upsertProduct(userId: String, product: FirestoreProduct): FirestoreProduct
     suspend fun deleteProduct(userId: String, serverId: String)
-    suspend fun updateProductItems(userId: String, productServerId: String, items: List<ItemEntity>)
+    /**
+     * Returns the items as stored, with an id assigned to any that came in blank. The caller must
+     * persist those ids: an item's local serverId is what marks it as confirmed on the server.
+     */
+    suspend fun updateProductItems(userId: String, productServerId: String, items: List<FirestoreItem>, updatedAt: Long): List<FirestoreItem>
     suspend fun fetchAll(userId: String): List<FirestoreProduct>
     fun listenToChanges(userId: String): Flow<List<FirestoreProduct>>
 }

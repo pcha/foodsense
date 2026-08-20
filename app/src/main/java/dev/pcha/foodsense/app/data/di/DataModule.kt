@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flowOf
 import dev.pcha.foodsense.app.data.Item
 import dev.pcha.foodsense.app.data.Product
 import dev.pcha.foodsense.app.data.ProductRepository
+import dev.pcha.foodsense.app.data.SyncStatus
 import dev.pcha.foodsense.app.data.DefaultProductRepository
 import dev.pcha.foodsense.app.data.local.database.ProductUnit
 import java.time.LocalDate
@@ -29,12 +30,14 @@ interface DataModule {
 class FakeProductRepository @Inject constructor() : ProductRepository {
     override val products: Flow<List<Product>> = flowOf(fakeProducts)
     override val productNames: Flow<List<String>> = flowOf(fakeProducts.map { it.name })
+    override val syncStatus: Flow<SyncStatus> = flowOf(SyncStatus.Idle)
 
     override suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {}
     override suspend fun updateProduct(productId: Int, name: String) {}
     override suspend fun updateItem(itemId: Int, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {}
     override suspend fun deleteItem(itemId: Int) {}
     override suspend fun deleteProduct(productId: Int) {}
+    override suspend fun sync(): Boolean = true
 }
 
 val fakeProducts = listOf(
