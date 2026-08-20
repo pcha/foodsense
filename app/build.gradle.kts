@@ -45,6 +45,22 @@ android {
     }
 
 
+    // Firma de release alimentada por el entorno: el CI escribe el keystore desde un secret y
+    // exporta estas variables. Sin ellas el build local sigue produciendo un APK sin firmar, así
+    // que no se rompe para quien no tenga el keystore.
+    // Se leen con providers.environmentVariable para que la configuration cache las trackee.
+    signingConfigs {
+        create("release") {
+            val keystorePath = providers.environmentVariable("RELEASE_KEYSTORE_PATH").orNull
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
+                storePassword = providers.environmentVariable("RELEASE_KEYSTORE_PASSWORD").orNull
+                keyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").orNull
+                keyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").orNull
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".dev"
@@ -53,6 +69,7 @@ android {
         getByName("release") {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
         }
     }
 

@@ -6,7 +6,39 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Puerta de entrada: si algo de esto falla, no se publica nada.
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write google-services.json (debug)
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" | base64 -d > app/google-services.json
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: ./gradlew :app:testDebugUnitTest :app:lintDebug
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: firebase/package-lock.json
+
+      - run: npm ci
+        working-directory: firebase
+
+      - run: npm test
+        working-directory: firebase
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -36,16 +68,55 @@ jobs:
         if: steps.changelog.outputs.skipped == 'false'
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Write google-services.json
+      - name: Write google-services.json (release)
         if: steps.changelog.outputs.skipped == 'false'
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/release/google-services.json
+        run: |
+          mkdir -p app/src/release
+          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/release/google-services.json
 
-      - name: Build Release APK
+      # ── Firma ───────────────────────────────────────────────────────────────
+      # Sin estos secrets el APK sale sin firmar y no se puede instalar. Crearlos:
+      #   keytool -genkey -v -keystore foodsense.jks -alias foodsense \
+      #     -keyalg RSA -keysize 2048 -validity 10000
+      #   base64 -i foodsense.jks
+      # y cargar KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS y KEY_PASSWORD.
+      # ────────────────────────────────────────────────────────────────────────
+      - name: Check signing secrets
         if: steps.changelog.outputs.skipped == 'false'
+        run: |
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "::error::Falta KEYSTORE_BASE64. Sin keystore el APK sale sin firmar y no se instala."
+            exit 1
+          fi
+
+      - name: Write keystore
+        if: steps.changelog.outputs.skipped == 'false'
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed release APK
+        if: steps.changelog.outputs.skipped == 'false'
+        env:
+          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           ./gradlew assembleRelease \
             -PversionName=${{ steps.changelog.outputs.version }} \
             -PversionCode=${{ github.run_number }}
+
+      # Si la firma no se aplicó, Gradle deja app-release-unsigned.apk y el release publicaría un
+      # artefacto que no se instala — como pasaba hasta v0.8.1. Mejor fallar acá.
+      - name: Verify the APK is signed
+        if: steps.changelog.outputs.skipped == 'false'
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK" || { echo "::error::No se generó $APK; el build quedó sin firmar."; exit 1; }
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK"
+
+      - name: Remove the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
 
       - name: Create GitHub Release
         if: steps.changelog.outputs.skipped == 'false'
@@ -54,53 +125,9 @@ jobs:
           tag_name: ${{ steps.changelog.outputs.tag }}
           name: ${{ steps.changelog.outputs.tag }}
           body: ${{ steps.changelog.outputs.clean_changelog }}
-          files: app/build/outputs/apk/release/app-release-unsigned.apk
+          files: app/build/outputs/apk/release/app-release.apk
 
-      # ── Play Store publishing ──────────────────────────────────────────────
-      # Requires the following repository secrets:
-      #   KEYSTORE_BASE64              base64-encoded .jks keystore file
-      #   KEYSTORE_PASSWORD            keystore password
-      #   KEY_ALIAS                    signing key alias
-      #   KEY_PASSWORD                 signing key password
-      #   GOOGLE_PLAY_SERVICE_ACCOUNT  Google Play service account JSON (contents)
-      # ────────────────────────────────────────────────────────────────────────
-
-      - name: Check Play Store secrets
-        if: steps.changelog.outputs.skipped == 'false'
-        id: play_secrets
-        run: |
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ] && [ -n "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}" ]; then
-            echo "available=true" >> $GITHUB_OUTPUT
-          else
-            echo "available=false" >> $GITHUB_OUTPUT
-            echo "::warning::Play Store publishing is not configured. To enable it, follow these steps:%0A%0A1. Create a keystore: keytool -genkey -v -keystore foodsense.jks -alias foodsense -keyalg RSA -keysize 2048 -validity 10000%0A2. Encode it: base64 -w0 foodsense.jks%0A3. Create a Google Play service account: https://play.google.com/console → Setup → API access%0A4. Add these repository secrets (Settings → Secrets → Actions):%0A   - KEYSTORE_BASE64 (output of step 2)%0A   - KEYSTORE_PASSWORD%0A   - KEY_ALIAS (e.g. foodsense)%0A   - KEY_PASSWORD%0A   - GOOGLE_PLAY_SERVICE_ACCOUNT (contents of the downloaded JSON)"
-          fi
-
-      - name: Build Release AAB
-        if: steps.changelog.outputs.skipped == 'false' && steps.play_secrets.outputs.available == 'true'
-        run: |
-          ./gradlew bundleRelease \
-            -PversionName=${{ steps.changelog.outputs.version }} \
-            -PversionCode=${{ github.run_number }}
-
-      - name: Sign AAB
-        if: steps.changelog.outputs.skipped == 'false' && steps.play_secrets.outputs.available == 'true'
-        id: sign
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: app/build/outputs/bundle/release
-          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Publish to Play Store (internal track)
-        if: steps.changelog.outputs.skipped == 'false' && steps.play_secrets.outputs.available == 'true'
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
-          packageName: dev.pcha.foodsense.app
-          releaseFiles: ${{ steps.sign.outputs.signedReleaseFile }}
-          track: internal
-          whatsNewDirectory: fastlane/metadata/android/en-US/changelogs
-          mappingFile: app/build/outputs/mapping/release/mapping.txt
+# Publicación en Play Store: los pasos estaban acá y se sacaron a propósito. Para retomarlos,
+# recuperarlos del historial (git log -- .github/workflows/release.yml) y tener en cuenta que
+# apuntaban a dos rutas que no existen: mapping.txt, que no se genera con isMinifyEnabled = false,
+# y fastlane/metadata/android/en-US/changelogs.

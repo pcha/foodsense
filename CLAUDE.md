@@ -217,6 +217,33 @@ Los schemas se exportan a `app/schemas/` (`room.schemaLocation`) y se exponen a 
 `sourceSets["androidTest"].assets.srcDir`. `MigrationTest` usa `MigrationTestHelper`
 (dep `androidx.room:room-testing`) para validar migraciones (requiere emulador).
 
+## CI y release
+
+- **`ci.yml`** — push a `develop` y pull requests. Tres jobs en paralelo: unitarios + lint,
+  reglas de Firestore, e instrumentados en un emulador de Android (API 34, `google_apis`).
+- **`release.yml`** — push a `main`. El job `release` tiene `needs: test`, así que no publica nada
+  si los tests fallan. Versiona con conventional commits desde `.version.yml`, compila un APK
+  **firmado** y lo adjunta al GitHub Release. Play Store está fuera a propósito.
+
+Secrets necesarios:
+
+| Secret | Para qué |
+|---|---|
+| `GOOGLE_SERVICES_JSON_DEBUG` | base64 del `google-services.json` de debug (paquete `.dev`) |
+| `GOOGLE_SERVICES_JSON` | base64 del de release (paquete `dev.pcha.foodsense.app`) |
+| `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` | firma del APK |
+
+Dos cosas que no son evidentes:
+
+- **Los tests JVM necesitan el `google-services.json` de debug.** El plugin de Google Services
+  genera recursos por variante y `testDebugUnitTest` los consume, más desde que activamos
+  `unitTests.isIncludeAndroidResources`. Sin ese secret el job falla antes del primer test.
+- **Debug y release usan archivos distintos**, porque el paquete difiere (`.dev` contra el pelado)
+  y un `google-services.json` sólo sirve para los paquetes que registra.
+
+Localmente `assembleRelease` sigue produciendo `app-release-unsigned.apk` si no están las variables
+`RELEASE_KEYSTORE_*`, así que no hace falta tener el keystore para compilar.
+
 ## Qué NO hacer
 
 - No agregar features más allá de lo pedido
