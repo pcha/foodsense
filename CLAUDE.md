@@ -15,7 +15,7 @@ Antes de implementar cualquier cosa, consultá estas skills del proyecto:
 
 ## Project info
 
-- **Package:** `com.github.pcha.foodsense.app`
+- **Package:** `dev.pcha.foodsense.app`
 - **Min SDK:** 26
 - **Target SDK:** 36
 
@@ -23,7 +23,9 @@ Antes de implementar cualquier cosa, consultá estas skills del proyecto:
 
 - Jetpack Compose + Material3
 - Hilt (dependency injection)
-- Room (local database, actualmente en schema versión 5)
+- Room (local database, actualmente en schema versión 7)
+- Firebase Auth (Google + email/password) + Cloud Firestore (sync multi-dispositivo)
+- WorkManager (`@HiltWorker` + `HiltWorkerFactory`) — notificaciones de vencimiento y sync periódico
 - Navigation 3
 - CameraX (`camera-camera2`, `camera-lifecycle`, `camera-view`)
 - ML Kit Text Recognition (`play-services-mlkit-text-recognition`)
@@ -97,11 +99,71 @@ data/barcode/
 └── OpenFoodFactsBarcodeRepository  — HTTP a open.fda.gov / openfoodfacts.org
 ```
 
-Migración Room: la versión 5 agrega la tabla `barcode_registry`.
+Migraciones Room recientes: v5 agrega `barcode_registry`; v6 agrega `serverId` a `product` e `item` (sync); v7 agrega `updatedAt` a `product` (last-write-wins).
+
+## Capa de datos — Sync offline-first (Firestore)
+
+Room es el **SSOT**; la UI lee sólo de Room. Firestore sincroniza en background. Los writes
+son optimistas: primero Room, después push a Firestore vía `syncIfAuthenticated` en `appScope`.
+
+```
+data/sync/
+├── FirestoreSyncRepository.kt         — interfaz + modelos de red (FirestoreProduct/Item)
+├── FirebaseFirestoreSyncRepository.kt — impl: upsert / delete / updateItems / listenToChanges (snapshot)
+└── SyncWorker.kt                      — reconciliación periódica (fetchAll → applyRemoteChanges)
+```
+
+Reglas clave del sync (en `DefaultProductRepository`):
+- **Modelos por capa:** `FirestoreProduct` (red) ↔ `ProductEntity` (Room) ↔ `Product` (dominio/UI).
+- **`serverId`** en Room mapea la fila local al doc de Firestore; se asigna en Room ANTES de que
+  llegue el snapshot para no duplicar.
+- **Last-write-wins:** cada mutación sella `product.updatedAt = System.currentTimeMillis()` (desde
+  el repo, nunca desde la entidad). `applyRemoteChanges` descarta el remoto si
+  `remote.updatedAt < local.updatedAt`, así un edit local no sincronizado no se pisa.
+- **Persistencia offline de Firestore** habilitada explícita en `SyncModule` → writes encolados en
+  disco (sobreviven cierre de app) + reads desde caché. No hay cola de writes propia.
+- **`SyncStatus`** (`Idle/Syncing/Error`) se expone como `Flow` desde el repo → `uiState.syncError`
+  → banner discreto en `ProductScreen`. El listener setea `Error` en `.catch` (no lo traga).
+- **Logout:** `clearLocalData()` borra sólo lo sincronizado (`deleteSyncedProducts`, `serverId != null`);
+  conserva lo local-only, que `migrateLocalDataToFirestore` sube al re-loguear.
+- Métodos `internal` (`applyRemoteChanges`, `clearLocalData`) para poder testearlos con fakes.
+- **Al aplicar el remoto se reemplazan TODOS los ítems locales**, sin intentar distinguir cuáles ya
+  están en Firestore. Con la cola offline, un ítem con `serverId == null` puede estar igual en el
+  servidor, y conservarlo duplica la copia que trae el snapshot. Ya se intentó dos veces afinar esto
+  y las dos duplicó — ver [docs/pending-plans/stable-sync-ids.md](docs/pending-plans/stable-sync-ids.md)
+  antes de volver a tocarlo.
+
+## Planes pendientes
+
+`docs/pending-plans/` guarda propuestas ya analizadas pero sin implementar. Consultarlas antes de
+encarar algo de la capa de sync: suelen explicar por qué el código está como está.
+
+## Capa de datos — otros data sources
+
+- **Auth:** `AuthRepository` expone un modelo de dominio propio `User` (`data/auth/User.kt`), NO
+  `FirebaseUser`. `FirebaseAuthRepository` mapea `FirebaseUser → User`. La UI/ViewModel nunca ven
+  tipos del SDK de Firebase.
+- **Preferencias:** `OnboardingRepository` (`data/preferences/`) con **Preferences DataStore**
+  guarda el flag de onboarding. `Navigation` no toca `SharedPreferences` ni `FirebaseAuth` directo;
+  usa `AuthViewModel` (`currentUser`, `onboardingDone`, `completeOnboarding()`).
+- **ML on-device:** `data/mlkit/` — `TextRecognizer` (OCR) y `BarcodeImageScanner` (barcode)
+  envuelven ML Kit. Los ViewModels/composables inyectan estas interfaces; **no** importan
+  `TextRecognition`/`BarcodeScanning`/`InputImage`. CameraX (preview/analysis/capture) sí vive en
+  la UI porque es rendering; los composables pasan `Bitmap`/`android.media.Image` a los data sources.
 
 ## Recursos
 
 - `res/drawable/ic_barcode.xml` — vector drawable custom (marcas de esquina + barras verticales)
+
+### Idioma de los strings
+
+`values/strings.xml` está **mezclado**: lo viejo en inglés, y lo de login/cuenta en español porque
+se extrajo tal cual de literales hardcodeados. No hay `values-es/`. Antes de agregar traducciones
+hay que decidir un idioma para el default y mover el resto.
+
+Todo texto visible va en `strings.xml`, nunca hardcodeado: los tests instrumentados lo referencian
+por `R.string.*`, así que renombrar un string rompe la compilación en vez de romper el test en
+silencio. Todavía quedan literales en `ScanScreen`, `DateScanSheet` y parte de `ProductScreen`.
 
 ## Testing
 
@@ -114,25 +176,56 @@ Migración Room: la versión 5 agrega la tabla `barcode_registry`.
 - Nombres de tests: `subject_condition_expectedResult`
 - Cada fake debe implementar completamente su interfaz incluyendo todos los métodos
 
-### Precaución con ML Kit en tests JVM
+### Emuladores de Firebase
 
-`TextRecognition.getClient()` falla en tests JVM con `MlKitContext has not been initialized`.
-Usar inicialización lazy en el ViewModel:
-```kotlin
-private val _recognizer = lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
-private val recognizer by _recognizer
+Los tests instrumentados **no necesitan preparación**: el build service `FirebaseEmulators` de
+`app/build.gradle.kts` levanta los emuladores antes de `connectedDebugAndroidTest`, espera a que
+respondan los puertos 8080 y 9099, y los baja al terminar el build.
 
-override fun onCleared() {
-    super.onCleared()
-    if (_recognizer.isInitialized()) recognizer.close()
-}
+```bash
+./gradlew :app:connectedDebugAndroidTest   # levanta, corre y baja los emuladores solo
+cd firebase && npm test                    # tests de reglas (JS, con su propio emulators:exec)
+cd firebase && npm run emulators           # dejarlos corriendo durante el desarrollo
 ```
+
+Si ya hay emuladores corriendo, el build service los detecta por los puertos, los reusa y **no los
+baja** al terminar — no te mata los que levantaste a mano.
+
+El CLI está instalado como devDependency dentro de `firebase/`, así que **hay que correrlo desde
+ese directorio** — desde la raíz npx falla con `could not determine executable to run`.
+
+Si los emuladores no están arriba, los 9 tests de Firestore se **saltean** en vez de fallar: un
+servicio local apagado no es una regresión, y como falla taparía las que sí importan.
+
+### Tests instrumentados de Compose
+
+Componer el contenido desde el test sobre `HiltTestActivity` (`src/debug`), no lanzar `MainActivity`:
+cuando la activity hace su propio `setContent`, el árbol no queda registrado en el test rule y todo
+falla con "No compose hierarchies found". `HiltTestActivity` existe porque `MainNavigation()` usa
+`hiltViewModel()` y un `ComponentActivity` pelado no tiene inyección. Ver `NavigationTest`.
+
+### ML Kit y tests JVM
+
+ML Kit vive detrás de data sources (`data/mlkit/`), así que los ViewModels se testean con fakes
+(`FakeTextRecognizer`, `FakeBarcodeImageScanner`) y ya no aparece `MlKitContext has not been
+initialized`. `unitTests.isReturnDefaultValues = true` (en `build.gradle.kts`) hace que
+`android.util.Log` devuelva defaults en lugar de tirar excepción en tests JVM.
+
+### Test de migración Room
+
+Los schemas se exportan a `app/schemas/` (`room.schemaLocation`) y se exponen a `androidTest` vía
+`sourceSets["androidTest"].assets.srcDir`. `MigrationTest` usa `MigrationTestHelper`
+(dep `androidx.room:room-testing`) para validar migraciones (requiere emulador).
 
 ## Qué NO hacer
 
 - No agregar features más allá de lo pedido
 - No usar `AndroidViewModel` — usar `ViewModel` con Hilt
 - No acceder a DAOs de Room directamente desde ViewModels — siempre ir a través del repositorio
+- No acceder a SDKs de data source (Firebase, ML Kit, DataStore/`SharedPreferences`) desde
+  composables ni ViewModels — envolverlos en un repositorio/data source e inyectar la interfaz
+- No exponer tipos del SDK por encima de la capa de datos (`FirebaseUser`, `@Entity` de Room, DTOs
+  de red) — mapear a modelos de dominio (p. ej. `User`)
 - No llamar a `LocalDate.now()` dentro de entidades — pasar timestamps desde el caller
 - No poner `isProcessing` del scanner de fecha en `UiState` — es estado local del composable
 - No usar `IconButton` fully-qualified (`androidx.compose.material3.IconButton`) — ya está importado
