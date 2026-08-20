@@ -37,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import dev.pcha.foodsense.app.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -79,8 +81,8 @@ fun DateScanSheet(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text("Se necesita permiso de cámara", style = MaterialTheme.typography.bodyLarge)
-                OutlinedButton(onClick = onDismiss) { Text("Cancelar") }
+                Text(stringResource(R.string.camera_permission_required), style = MaterialTheme.typography.bodyLarge)
+                OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel)) }
             }
         } else {
             CameraCapture(
@@ -146,7 +148,7 @@ private fun CameraCapture(
         ) {
             if (error) {
                 Text(
-                    "No se encontró ninguna fecha. Intentá de nuevo.",
+                    stringResource(R.string.date_scan_not_found),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -177,10 +179,10 @@ private fun CameraCapture(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Capturar")
+                    Text(stringResource(R.string.action_capture))
                 }
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text("Cancelar")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
             Spacer(Modifier.height(8.dp))

@@ -7,9 +7,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
 
-class OpenFoodFactsBarcodeRepository @Inject constructor() {
+/** Remote barcode lookup (Open Food Facts). */
+interface RemoteBarcodeSource {
+    suspend fun lookup(barcode: String): BarcodeProduct?
+}
 
-    suspend fun lookup(barcode: String): BarcodeProduct? = withContext(Dispatchers.IO) {
+class OpenFoodFactsBarcodeRepository @Inject constructor() : RemoteBarcodeSource {
+
+    override suspend fun lookup(barcode: String): BarcodeProduct? = withContext(Dispatchers.IO) {
         try {
             val url = URL("https://world.openfoodfacts.org/api/v0/product/$barcode.json")
             val connection = url.openConnection() as HttpURLConnection

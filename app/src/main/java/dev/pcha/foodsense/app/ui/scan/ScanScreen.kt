@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -37,15 +38,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import dev.pcha.foodsense.app.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
+import android.media.Image
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -78,9 +79,9 @@ fun ScanScreen(
     if (!hasCameraPermission) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Se necesita permiso de cámara", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.camera_permission_required), style = MaterialTheme.typography.bodyLarge)
                 Spacer(Modifier.height(16.dp))
-                OutlinedButton(onClick = onCancel) { Text("Cancelar") }
+                OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.btn_cancel)) }
             }
         }
         return
@@ -90,6 +91,7 @@ fun ScanScreen(
         when (uiState.phase) {
             ScanPhase.Barcode -> BarcodeScannerView(
                 isProcessing = uiState.isProcessing,
+                onAnalyzeFrame = viewModel::analyzeFrame,
                 onBarcodeDetected = { barcode ->
                     viewModel.lookupBarcode(barcode) { viewModel.switchToOcr() }
                 },
@@ -131,7 +133,7 @@ fun ScanScreen(
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("¿Es este el producto?", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.scan_confirm_product_question), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 Text(pending.product.name, style = MaterialTheme.typography.bodyLarge)
                 if (pending.product.quantity != null) {
@@ -147,7 +149,7 @@ fun ScanScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Sí, es correcto")
+                    Text(stringResource(R.string.scan_confirm_yes))
                 }
                 OutlinedButton(
                     onClick = {
@@ -155,7 +157,7 @@ fun ScanScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("No es correcto")
+                    Text(stringResource(R.string.scan_confirm_no))
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -163,23 +165,24 @@ fun ScanScreen(
     }
 }
 
+// imageProxy.image es opt-in en CameraX. El marcador está declarado en Java, así que hay que usar
+// androidx.annotation.OptIn con markerClass, no el OptIn de Kotlin.
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
 @Composable
 private fun BarcodeScannerView(
     isProcessing: Boolean,
+    onAnalyzeFrame: (mediaImage: Image, rotationDegrees: Int, onClose: () -> Unit, onDetected: (String) -> Unit) -> Unit,
     onBarcodeDetected: (String) -> Unit,
     onSwitchToOcr: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
-    val barcodeScanner = remember { BarcodeScanning.getClient() }
     var lastDetectedBarcode by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
             executor.shutdown()
-            barcodeScanner.close()
         }
     }
 
@@ -200,21 +203,16 @@ private fun BarcodeScannerView(
                             imageAnalysis.setAnalyzer(executor) { imageProxy ->
                                 val mediaImage = imageProxy.image
                                 if (mediaImage != null) {
-                                    val image = InputImage.fromMediaImage(
+                                    onAnalyzeFrame(
                                         mediaImage,
-                                        imageProxy.imageInfo.rotationDegrees
-                                    )
-                                    barcodeScanner.process(image)
-                                        .addOnSuccessListener { barcodes ->
-                                            val code = barcodes.firstOrNull {
-                                                it.format != Barcode.FORMAT_UNKNOWN && it.rawValue != null
-                                            }?.rawValue
-                                            if (code != null && code != lastDetectedBarcode && !isProcessing) {
-                                                lastDetectedBarcode = code
-                                                onBarcodeDetected(code)
-                                            }
+                                        imageProxy.imageInfo.rotationDegrees,
+                                        { imageProxy.close() },
+                                    ) { code ->
+                                        if (code != lastDetectedBarcode && !isProcessing) {
+                                            lastDetectedBarcode = code
+                                            onBarcodeDetected(code)
                                         }
-                                        .addOnCompleteListener { imageProxy.close() }
+                                    }
                                 } else {
                                     imageProxy.close()
                                 }
@@ -242,11 +240,11 @@ private fun BarcodeScannerView(
                 Spacer(Modifier.height(8.dp))
             }
             Button(onClick = onSwitchToOcr, modifier = Modifier.fillMaxWidth()) {
-                Text("Fotografiar etiqueta")
+                Text(stringResource(R.string.scan_photograph_label))
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-                Text("Cancelar")
+                Text(stringResource(R.string.btn_cancel))
             }
         }
     }
@@ -319,11 +317,11 @@ private fun OcrCaptureView(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Tomar foto")
+                    Text(stringResource(R.string.scan_take_photo))
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-                    Text("Cancelar")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         }

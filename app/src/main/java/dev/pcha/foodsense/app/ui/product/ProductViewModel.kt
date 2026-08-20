@@ -4,9 +4,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.pcha.foodsense.app.ui.scan.extractDateOnly
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import dev.pcha.foodsense.app.data.mlkit.TextRecognizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,10 +12,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import dev.pcha.foodsense.app.data.Item
 import dev.pcha.foodsense.app.data.Product
 import dev.pcha.foodsense.app.data.ProductRepository
+import dev.pcha.foodsense.app.data.SyncStatus
 import dev.pcha.foodsense.app.data.barcode.BarcodeProduct
 import dev.pcha.foodsense.app.data.barcode.BarcodeRepository
 import dev.pcha.foodsense.app.data.local.database.ProductUnit
@@ -33,10 +31,8 @@ import javax.inject.Inject
 class ProductViewModel @Inject constructor(
     private val productRepository: ProductRepository,
     private val barcodeRepository: BarcodeRepository,
+    private val textRecognizer: TextRecognizer,
 ) : ViewModel() {
-
-    private val _recognizer = lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
-    private val recognizer by _recognizer
 
     private val _uiState = MutableStateFlow(ProductUiState())
     val uiState: StateFlow<ProductUiState> = _uiState.asStateFlow()
@@ -50,6 +46,10 @@ class ProductViewModel @Inject constructor(
         viewModelScope.launch {
             productRepository.productNames
                 .collect { names -> _uiState.update { it.copy(allProductNames = names) } }
+        }
+        viewModelScope.launch {
+            productRepository.syncStatus
+                .collect { status -> _uiState.update { it.copy(syncError = status == SyncStatus.Error) } }
         }
     }
 
@@ -234,8 +234,7 @@ class ProductViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(dateScanError = false) }
             try {
-                val lines = recognizer.process(InputImage.fromBitmap(bitmap, 0)).await()
-                    .textBlocks.flatMap { it.lines }.map { it.text }
+                val lines = textRecognizer.recognizeLines(bitmap)
                 val date = parseDateStr(extractDateOnly(lines))
                 if (date != null) {
                     _uiState.update { it.copy(formExpirationDate = date, showDateScanner = false, dateScanError = false) }
@@ -248,11 +247,6 @@ class ProductViewModel @Inject constructor(
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        if (_recognizer.isInitialized()) recognizer.close()
-    }
-
     private fun parseDateStr(str: String?): LocalDate? {
         if (str == null) return null
         val locale = Locale.getDefault()
@@ -261,7 +255,7 @@ class ProductViewModel @Inject constructor(
         val locales = buildList {
             add(locale)
             if (locale != Locale.ENGLISH) add(Locale.ENGLISH)
-            if (locale.language != "es") add(Locale("es"))
+            if (locale.language != "es") add(Locale.forLanguageTag("es"))
         }
         for (monthLocale in locales) {
             for (pattern in listOf("d MMM yyyy", "d MMMM yyyy")) {
@@ -323,4 +317,5 @@ data class ProductUiState(
     val rememberBarcode: Boolean = true,
     val showDateScanner: Boolean = false,
     val dateScanError: Boolean = false,
+    val syncError: Boolean = false,
 )

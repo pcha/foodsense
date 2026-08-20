@@ -3,8 +3,8 @@ package dev.pcha.foodsense.app.data.barcode
 import javax.inject.Inject
 
 class BarcodeRepositoryImpl @Inject constructor(
-    private val localRegistry: LocalBarcodeRegistry,
-    private val openFoodFacts: OpenFoodFactsBarcodeRepository,
+    private val localRegistry: BarcodeCache,
+    private val openFoodFacts: RemoteBarcodeSource,
 ) : BarcodeRepository {
 
     override suspend fun lookup(barcode: String): BarcodeResult? {
