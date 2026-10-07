@@ -193,8 +193,7 @@ class FirebaseFirestoreSyncRepositoryTest {
         @BeforeClass
         fun configureEmulator() {
             val context = InstrumentationRegistry.getInstrumentation().targetContext
-            // Opciones explícitas en vez de google-services.json: ese archivo está gitignoreado, y
-            // el prefijo `demo-` impide que estos tests puedan llegar a un proyecto real.
+            // Opciones explícitas y un proyecto demo: estos tests no pueden llegar a Firebase real.
             val options = FirebaseOptions.Builder()
                 .setProjectId("demo-foodsense")
                 .setApplicationId("1:1:android:1")

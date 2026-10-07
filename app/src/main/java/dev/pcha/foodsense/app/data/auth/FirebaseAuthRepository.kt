@@ -9,12 +9,12 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import dev.pcha.foodsense.app.R
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.tasks.await
-import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
@@ -79,24 +79,8 @@ class FirebaseAuthRepository @Inject constructor(
         firebaseAuth.signOut()
     }
 
-    private fun getWebClientId(context: Context): String {
-        val json = context.assets.open("google-services.json").bufferedReader().use { it.readText() }
-        val config = JSONObject(json)
-        val clients = config.getJSONArray("client")
-
-        for (i in 0 until clients.length()) {
-            val client = clients.getJSONObject(i)
-            val oauthClients = client.getJSONArray("oauth_client")
-
-            for (j in 0 until oauthClients.length()) {
-                val oauthClient = oauthClients.getJSONObject(j)
-                if (oauthClient.getInt("client_type") == 3) {
-                    return oauthClient.getString("client_id")
-                }
-            }
-        }
-        throw IllegalStateException("Web Client ID (type 3) not found in google-services.json")
-    }
+    private fun getWebClientId(context: Context): String =
+        context.getString(R.string.default_web_client_id)
 
     private fun generateNonce(): String {
         val rawNonce = UUID.randomUUID().toString()

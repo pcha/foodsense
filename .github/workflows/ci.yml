@@ -5,9 +5,8 @@ on:
     branches: [ develop ]
   pull_request:
 
-# google-services.json está gitignoreado, y el plugin de Google Services genera recursos por
-# variante: sin el archivo de debug ni siquiera los tests JVM compilan, porque desde que
-# habilitamos unitTests.isIncludeAndroidResources para Robolectric consumen recursos mergeados.
+# El plugin de Google Services necesita la configuración de la variante debug incluso para los
+# tests JVM; el archivo se inyecta desde un secret y no se versiona.
 
 jobs:
   unit:
@@ -16,12 +15,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Sin este archivo el plugin de Google Services aborta con "Malformed root json", que no
-      # dice nada sobre la causa real. Mejor fallar acá con el motivo.
       - name: Write google-services.json (debug)
         run: |
           if [ -z "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" ]; then
-            echo "::error::Falta el secret GOOGLE_SERVICES_JSON_DEBUG (base64 del google-services.json de debug, paquete dev.pcha.foodsense.app.dev)."
+            echo "::error::Falta GOOGLE_SERVICES_JSON_DEBUG (base64 del google-services.json para dev.pcha.foodsense.app.dev)."
             exit 1
           fi
           echo "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" | base64 -d > app/google-services.json
@@ -75,12 +72,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Sin este archivo el plugin de Google Services aborta con "Malformed root json", que no
-      # dice nada sobre la causa real. Mejor fallar acá con el motivo.
       - name: Write google-services.json (debug)
         run: |
           if [ -z "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" ]; then
-            echo "::error::Falta el secret GOOGLE_SERVICES_JSON_DEBUG (base64 del google-services.json de debug, paquete dev.pcha.foodsense.app.dev)."
+            echo "::error::Falta GOOGLE_SERVICES_JSON_DEBUG (base64 del google-services.json para dev.pcha.foodsense.app.dev)."
             exit 1
           fi
           echo "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" | base64 -d > app/google-services.json
