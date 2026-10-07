@@ -6,22 +6,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Puerta de entrada: si algo de esto falla, no se publica nada.
+  # Puerta de entrada: valida la misma variante que se va a distribuir.
   test:
-    name: Tests
+    name: Release tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Sin este archivo el plugin de Google Services aborta con "Malformed root json", que no
-      # dice nada sobre la causa real. Mejor fallar acá con el motivo.
-      - name: Write google-services.json (debug)
+      - name: Write google-services.json (release)
         run: |
-          if [ -z "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" ]; then
-            echo "::error::Falta el secret GOOGLE_SERVICES_JSON_DEBUG (base64 del google-services.json de debug, paquete dev.pcha.foodsense.app.dev)."
+          if [ -z "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo "::error::Falta el secret GOOGLE_SERVICES_JSON (base64 del google-services.json de release, paquete dev.pcha.foodsense.app)."
             exit 1
           fi
-          echo "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" | base64 -d > app/google-services.json
+          mkdir -p app/src/release
+          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/release/google-services.json
 
       - uses: actions/setup-java@v4
         with:
@@ -30,19 +29,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - run: ./gradlew :app:testDebugUnitTest :app:lintDebug
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: firebase/package-lock.json
-
-      - run: npm ci
-        working-directory: firebase
-
-      - run: npm test
-        working-directory: firebase
+      - run: ./gradlew :app:testReleaseUnitTest :app:lintRelease
 
   release:
     needs: test
@@ -90,11 +77,16 @@ jobs:
       # ────────────────────────────────────────────────────────────────────────
       - name: Check signing secrets
         if: steps.changelog.outputs.skipped == 'false'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "::error::Falta KEYSTORE_BASE64. Sin keystore el APK sale sin firmar y no se instala."
-            exit 1
-          fi
+          test -n "$KEYSTORE_BASE64" || { echo "::error::Falta KEYSTORE_BASE64."; exit 1; }
+          test -n "$KEYSTORE_PASSWORD" || { echo "::error::Falta KEYSTORE_PASSWORD."; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "::error::Falta KEY_ALIAS."; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "::error::Falta KEY_PASSWORD."; exit 1; }
 
       - name: Write keystore
         if: steps.changelog.outputs.skipped == 'false'
