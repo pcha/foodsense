@@ -121,9 +121,6 @@ class ProductDaoTest {
 
     @Test
     fun findProductByName_differentCase_isNotFound() = runTest {
-        // Documenta el comportamiento actual: SQLite compara con `=`, que distingue mayúsculas.
-        // Como el nombre es la clave de identidad entre dispositivos, "leche" y "Leche" no se
-        // mergean. Normalizar el nombre está pendiente y cambiaría este test.
         insertProduct("Leche")
 
         assertNull(productDao.findProductByName("leche"))

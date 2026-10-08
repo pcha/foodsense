@@ -7,7 +7,6 @@ let testEnv;
 
 beforeAll(async () => {
   testEnv = await initializeTestEnvironment({
-    // El prefijo demo- garantiza que nunca toque el proyecto real.
     projectId: "demo-foodsense",
     firestore: { rules: readFileSync("firestore.rules", "utf8") },
   });
@@ -28,16 +27,12 @@ describe("users/{userId}/products", () => {
   });
 
   test("owner_ownCollection_canList", async () => {
-    // El camino de fetchAll y listenToChanges: una query sobre la colección, no un get.
-    // Pasa porque la condición depende sólo de userId (variable del path). Si algún día
-    // pasa a depender de resource.data, este test se pone rojo antes de producción.
     const alice = testEnv.authenticatedContext("alice").firestore();
 
     await assertSucceeds(getDocs(productsOf(alice, "alice")));
   });
 
   test("otherUser_someoneElsesProducts_cannotRead", async () => {
-    // El seed necesita saltear las reglas: si no, el propio setup daría PERMISSION_DENIED.
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), "users/alice/products/p1"), { name: "Leche" });
     });

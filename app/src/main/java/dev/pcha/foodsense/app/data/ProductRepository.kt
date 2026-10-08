@@ -123,7 +123,6 @@ class DefaultProductRepository @Inject constructor(
         ))
         productDao.touchUpdatedAt(productId, now)
         syncIfAuthenticated { userId ->
-            // El push corre después, en appScope: el producto pudo haberse renombrado o borrado.
             val product = productDao.findProductByName(name) ?: return@syncIfAuthenticated
             val items = itemDao.getItemsByProduct(product.uid)
             val serverId = product.serverId ?: run {
@@ -278,9 +277,6 @@ class DefaultProductRepository @Inject constructor(
                     local.copy(name = name, serverId = winner.serverId, updatedAt = mergedUpdatedAt)
                         .also { it.uid = local.uid }
                 )
-                // Se reemplazan todos los ítems locales, sin intentar distinguir cuáles ya están en
-                // Firestore: con la cola offline, un ítem sin serverId puede estar igual en el
-                // servidor, y quedarse con él duplicaría la copia que trae el snapshot.
                 itemDao.getItemsByProduct(local.uid).forEach { itemDao.deleteItem(it.uid) }
                 mergedItems.forEach { itemDao.insertItem(it.toItemEntity(local.uid)) }
             }

@@ -9,13 +9,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * Deja el flag de onboarding sin emitir hasta que el test lo decida.
- *
- * `AuthViewModel.onboardingDone` arranca en `null` ("todavía no cargó") y `MainNavigation` no
- * evalúa el gate de login hasta que deja de serlo. Con un [MutableSharedFlow] sin valor inicial,
- * la activity puede lanzarse y recién después el test elige el escenario.
- */
 class FakeOnboardingRepository : OnboardingRepository {
     private val _onboardingDone = MutableSharedFlow<Boolean>(replay = 1)
     override val onboardingDone: Flow<Boolean> = _onboardingDone

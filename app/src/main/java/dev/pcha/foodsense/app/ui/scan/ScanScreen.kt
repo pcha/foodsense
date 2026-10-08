@@ -165,8 +165,6 @@ fun ScanScreen(
     }
 }
 
-// imageProxy.image es opt-in en CameraX. El marcador está declarado en Java, así que hay que usar
-// androidx.annotation.OptIn con markerClass, no el OptIn de Kotlin.
 @androidx.annotation.OptIn(ExperimentalGetImage::class)
 @Composable
 private fun BarcodeScannerView(

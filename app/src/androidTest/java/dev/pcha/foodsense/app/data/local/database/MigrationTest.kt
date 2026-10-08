@@ -38,8 +38,6 @@ class MigrationTest {
     @Test
     @Throws(IOException::class)
     fun migrateAll_2To7_succeeds() {
-        // El schema v1 nunca se exportó a app/schemas/ (el más viejo es 2.json), así que la cadena
-        // sólo se puede validar desde ahí. MIGRATION_1_2 queda sin cobertura.
         helper.createDatabase(TEST_DB, 2).close()
         helper.runMigrationsAndValidate(
             TEST_DB, 7, true,

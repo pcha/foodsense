@@ -24,20 +24,6 @@ import org.junit.runner.RunWith
 import java.net.InetSocketAddress
 import java.net.Socket
 
-/**
- * Runs the real repository against the Firebase emulators. No hace falta prepararlos: el build
- * service `FirebaseEmulators` de `app/build.gradle.kts` los levanta antes de
- * `connectedDebugAndroidTest` y los baja al terminar.
- *
- * El assumeTrue de abajo queda como red de contención para el caso raro en que no se hayan podido
- * levantar (por ejemplo, sin `npx` en el PATH): ahí se saltean en vez de fallar.
- *
- * Nothing else covers the mapping code — the `as?` casts and defaults in `toFirestoreProduct` are
- * where a silent corruption would live, and they never run in the JVM tests.
- *
- * `runBlocking`, not `runTest`: these do real network I/O, so the virtual clock buys nothing and
- * would make `withTimeout` expire before Firestore ever answers.
- */
 @RunWith(AndroidJUnit4::class)
 class FirebaseFirestoreSyncRepositoryTest {
 
@@ -46,8 +32,6 @@ class FirebaseFirestoreSyncRepositoryTest {
 
     @Before
     fun setUp() = runBlocking {
-        // Sin los emuladores estos tests se saltean en vez de fallar: un servicio local apagado no
-        // es una regresión, y verlo como falla tapa las que sí importan.
         assumeTrue(
             "Emuladores de Firebase no disponibles. Deberían levantarse solos con Gradle; " +
                 "ver el log en app/build/firebase-emulators.log, o levantarlos a mano con " +
@@ -94,14 +78,13 @@ class FirebaseFirestoreSyncRepositoryTest {
         repository.updateProductItems(userId, stored.serverId, listOf(item(id = "i-new", quantity = 5f)), 999L)
 
         val fetched = repository.fetchAll(userId).single()
-        assertEquals("Milk", fetched.name) // SetOptions.merge no debe pisar el nombre
+        assertEquals("Milk", fetched.name)
         assertEquals(listOf(5f), fetched.items.map { it.quantity })
         assertEquals(999L, fetched.updatedAt)
     }
 
     @Test
     fun updateProductItems_blankIds_returnsResolvedIdsMatchingWhatWasStored() = runBlocking {
-        // El repositorio guarda estos ids en Room: son lo que marca a un ítem como confirmado.
         val stored = repository.upsertProduct(userId, product(name = "Milk"))
 
         val resolved = repository.updateProductItems(
@@ -135,14 +118,13 @@ class FirebaseFirestoreSyncRepositoryTest {
 
     @Test
     fun fetchAll_documentMissingOptionalFields_fallsBackToDefaults() = runBlocking {
-        // Escrito sin pasar por el repositorio: un doc viejo o escrito por otra versión.
         firestore.collection("users").document(userId).collection("products").document("legacy")
             .set(mapOf("name" to "Milk", "items" to listOf(mapOf("id" to "i1"))))
             .await()
 
         val fetched = repository.fetchAll(userId).single()
 
-        assertEquals(1f, fetched.items.single().quantity) // default cuando falta quantity
+        assertEquals(1f, fetched.items.single().quantity)
         assertEquals(0L, fetched.items.single().addedAt)
         assertNull(fetched.items.single().unit)
         assertEquals(0L, fetched.updatedAt)
@@ -179,7 +161,6 @@ class FirebaseFirestoreSyncRepositoryTest {
         private const val TIMEOUT_MS = 10_000L
         private const val APP_NAME = "firestore-emulator-test"
 
-        /** 10.0.2.2 es la IP especial para llegar al localhost del host desde el emulador. */
         private const val EMULATOR_HOST = "10.0.2.2"
         private const val FIRESTORE_PORT = 8080
         private const val AUTH_PORT = 9099
@@ -193,7 +174,6 @@ class FirebaseFirestoreSyncRepositoryTest {
         @BeforeClass
         fun configureEmulator() {
             val context = InstrumentationRegistry.getInstrumentation().targetContext
-            // Opciones explícitas y un proyecto demo: estos tests no pueden llegar a Firebase real.
             val options = FirebaseOptions.Builder()
                 .setProjectId("demo-foodsense")
                 .setApplicationId("1:1:android:1")

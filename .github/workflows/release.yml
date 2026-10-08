@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Puerta de entrada: valida la misma variante que se va a distribuir.
   test:
     name: Release tests
     runs-on: ubuntu-latest
@@ -68,13 +67,6 @@ jobs:
           mkdir -p app/src/release
           echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/release/google-services.json
 
-      # ── Firma ───────────────────────────────────────────────────────────────
-      # Sin estos secrets el APK sale sin firmar y no se puede instalar. Crearlos:
-      #   keytool -genkey -v -keystore foodsense.jks -alias foodsense \
-      #     -keyalg RSA -keysize 2048 -validity 10000
-      #   base64 -i foodsense.jks
-      # y cargar KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS y KEY_PASSWORD.
-      # ────────────────────────────────────────────────────────────────────────
       - name: Check signing secrets
         if: steps.changelog.outputs.skipped == 'false'
         env:
@@ -104,8 +96,6 @@ jobs:
             -PversionName=${{ steps.changelog.outputs.version }} \
             -PversionCode=${{ github.run_number }}
 
-      # Si la firma no se aplicó, Gradle deja app-release-unsigned.apk y el release publicaría un
-      # artefacto que no se instala — como pasaba hasta v0.8.1. Mejor fallar acá.
       - name: Verify the APK is signed
         if: steps.changelog.outputs.skipped == 'false'
         run: |
@@ -125,8 +115,3 @@ jobs:
           name: ${{ steps.changelog.outputs.tag }}
           body: ${{ steps.changelog.outputs.clean_changelog }}
           files: app/build/outputs/apk/release/app-release.apk
-
-# Publicación en Play Store: los pasos estaban acá y se sacaron a propósito. Para retomarlos,
-# recuperarlos del historial (git log -- .github/workflows/release.yml) y tener en cuenta que
-# apuntaban a dos rutas que no existen: mapping.txt, que no se genera con isMinifyEnabled = false,
-# y fastlane/metadata/android/en-US/changelogs.

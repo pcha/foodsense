@@ -128,8 +128,6 @@ class DefaultProductRepositoryTest {
         assertEquals(newDate, item.expirationDate)
     }
 
-    // --- applyRemoteChanges tests ---
-
     @Test
     fun applyRemoteChanges_newProductInRemote_isInsertedLocally() = runTest {
         val (repository) = makeRepository()
@@ -150,14 +148,12 @@ class DefaultProductRepositoryTest {
     fun applyRemoteChanges_productRemovedFromRemote_isDeletedLocally() = runTest {
         val (repository) = makeRepository()
         repository.add("Cheese", 1f, null, null)
-        // Simulate the product having been synced (has a serverId in Room)
         val productDao = FakeProductDao(FakeItemDao())
         val itemDao = FakeItemDao()
         val repo2 = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
         repo2.add("Cheese", 1f, null, null)
         productDao.updateServerId(1, "server-cheese")
 
-        // Remote snapshot no longer includes the product
         repo2.applyRemoteChanges("user-1", emptyList())
 
         assertTrue(repo2.products.first().isEmpty())
@@ -212,10 +208,9 @@ class DefaultProductRepositoryTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
         val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
-        repository.add("Milk", 1f, null, null) // local updatedAt = now (large)
+        repository.add("Milk", 1f, null, null)
         productDao.updateServerId(1, "server-milk")
 
-        // Stale remote (older timestamp) must not clobber the newer local edit.
         repository.applyRemoteChanges("user-1", listOf(
             FirestoreProduct(
                 serverId = "server-milk",
@@ -247,8 +242,6 @@ class DefaultProductRepositoryTest {
 
         assertEquals("Oat Milk", repository.products.first().first().name)
     }
-
-    // --- applyRemoteChanges: merge of same-named products created on different devices ---
 
     @Test
     fun applyRemoteChanges_sameNameFromTwoDevices_mergesItemsIntoOneProduct() = runTest {
@@ -290,7 +283,6 @@ class DefaultProductRepositoryTest {
             FirestoreProduct("doc-a", "Milk", listOf(FirestoreItem("item-a", 1f, null, null, today.toEpochDay())), 5L),
             FirestoreProduct("doc-b", "Milk", listOf(FirestoreItem("item-b", 2f, null, null, today.toEpochDay())), 7L),
         )
-        // Each device starts pointing at the doc it created itself.
         val deviceA = Fixture().apply {
             val uid = productDao.insertProduct(ProductEntity("Milk", "doc-a", 1L)).toInt()
             itemDao.insertItem(ItemEntity(uid, 1f, null, null, today, "item-a"))
@@ -338,7 +330,6 @@ class DefaultProductRepositoryTest {
         fixture.syncRepository.deletedProducts.clear()
         fixture.syncRepository.itemUpdates.clear()
 
-        // What Firestore holds after the merge: one doc carrying both items.
         fixture.repository.applyRemoteChanges("user-1", listOf(
             FirestoreProduct("doc-a", "Milk", listOf(
                 FirestoreItem("item-a", 1f, null, null, today),
@@ -385,7 +376,7 @@ class DefaultProductRepositoryTest {
         val productDao = FakeProductDao(itemDao)
         val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
         repository.add("Milk", 1f, null, null)
-        productDao.touchUpdatedAt(1, 1L) // reset to a known-old value
+        productDao.touchUpdatedAt(1, 1L)
         val itemId = repository.products.first().first().items.first().uid
 
         repository.updateItem(itemId, 2f, null, null)
@@ -398,8 +389,8 @@ class DefaultProductRepositoryTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
         val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
-        repository.add("Synced", 1f, null, null)     // uid 1
-        repository.add("LocalOnly", 1f, null, null)   // uid 2
+        repository.add("Synced", 1f, null, null)
+        repository.add("LocalOnly", 1f, null, null)
         productDao.updateServerId(1, "server-1")
 
         repository.clearLocalData()
@@ -408,8 +399,6 @@ class DefaultProductRepositoryTest {
         assertEquals(1, remaining.size)
         assertEquals("LocalOnly", remaining.first().name)
     }
-
-    // --- Sync orchestration: login/logout wiring, sync(), and the push side of each mutation ---
 
     @Test
     fun login_localOnlyProducts_areUploadedAndGetServerIds() = runTest {
@@ -523,7 +512,7 @@ class DefaultProductRepositoryTest {
         // The exact shape of the outage that started this: Firestore refuses the write, so the
         // product never gets a serverId, but the user's data must still be in Room.
         val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
-        runCurrent() // dejar que el login se asiente antes de simular la caída
+        runCurrent()
         fixture.syncRepository.failure = IllegalStateException("PERMISSION_DENIED")
 
         fixture.repository.add("Milk", 1f, null, null)
@@ -539,10 +528,7 @@ class DefaultProductRepositoryTest {
         // add() schedules its push on appScope and returns, so a rename can land first. Looking
         // the product up by its old name then finds nothing.
         val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
-        runCurrent() // dejar que el login se asiente para que el listener no pise el estado después
-
-        // Nada de collectar `products` en el medio: eso cedería el dispatcher y dejaría correr el
-        // push encolado antes del rename, que es justo la carrera que se quiere reproducir.
+        runCurrent()
         fixture.repository.add("Milk", 1f, null, null)
         val productId = fixture.productDao.findProductByName("Milk")!!.uid
         fixture.repository.updateProduct(productId, "Oat Milk")
@@ -551,15 +537,13 @@ class DefaultProductRepositoryTest {
         assertEquals(SyncStatus.Idle, fixture.repository.syncStatus.first())
     }
 
-    // --- serverId != null on an item must mean "confirmed in Firestore" ---
-
     @Test
     fun add_secondItemToSyncedProduct_storesItemServerId() = runTest {
         val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
         fixture.repository.add("Milk", 1f, null, null)
         runCurrent()
 
-        fixture.repository.add("Milk", 2f, null, null) // el producto ya tiene serverId
+        fixture.repository.add("Milk", 2f, null, null)
         runCurrent()
 
         val items = fixture.itemDao.getItemsByProduct(fixture.productDao.findProductByName("Milk")!!.uid)
@@ -569,8 +553,6 @@ class DefaultProductRepositoryTest {
 
     @Test
     fun applyRemoteChanges_afterAddingSecondItem_doesNotDuplicateItems() = runTest {
-        // La regresión: el segundo ítem se sincroniza bien, pero si Room no aprende su id, el
-        // snapshot lo reinserta como si fuera otro ítem distinto.
         val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
         fixture.repository.add("Milk", 1f, null, null)
         runCurrent()
@@ -593,7 +575,6 @@ class DefaultProductRepositoryTest {
         fixture.repository.updateItem(itemId, 3f, null, null)
         runCurrent()
 
-        // Por uid no sirve: al aplicar el snapshot los ítems se reinsertan y cambian de uid.
         val items = fixture.itemDao.getItemsByProduct(productId)
         assertEquals(listOf(3f), items.map { it.quantity })
         assertTrue(items.all { it.serverId != null })
@@ -619,8 +600,6 @@ class DefaultProductRepositoryTest {
 
     @Test
     fun applyRemoteChanges_afterFullSyncCycle_deletesRowWhenDocDisappears() = runTest {
-        // Con los ids ya confiables, un producto enteramente sincronizado se borra de verdad en
-        // vez de resucitar como local-only.
         val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
         fixture.repository.add("Milk", 1f, null, null)
         runCurrent()
@@ -634,9 +613,6 @@ class DefaultProductRepositoryTest {
 
     @Test
     fun applyRemoteChanges_offlineAddedProductAlreadyInFirestore_isNotDuplicated() = runTest {
-        // Sin conexión la escritura se encola en Firestore pero el await nunca vuelve, así que Room
-        // nunca aprende el serverId del ítem. Al reconectar el doc llega en el snapshot con ese
-        // mismo ítem: no debe quedar una segunda copia.
         val fixture = Fixture()
         val today = LocalDate.now()
         val uid = fixture.productDao.insertProduct(ProductEntity("Leche", null, 100L)).toInt()
@@ -668,7 +644,6 @@ class DefaultProductRepositoryTest {
         val uid = fixture.productDao.insertProduct(ProductEntity("Milk", "doc-a", 100L)).toInt()
         fixture.itemDao.insertItem(ItemEntity(uid, 1f, null, null, today, "i1"))
 
-        // LWW: el remoto es más nuevo, así que su lista de ítems reemplaza la local entera.
         fixture.repository.applyRemoteChanges("user-1", listOf(
             FirestoreProduct("doc-a", "Milk", listOf(FirestoreItem("i1", 2f, null, null, today.toEpochDay())), 200L)
         ))
@@ -729,7 +704,6 @@ private class FakeItemDao : ItemDao {
     override suspend fun getItemsByProduct(productId: Int): List<ItemEntity> =
         _items.value.filter { it.productId == productId }
 
-    /** Mirrors Room's ForeignKey.CASCADE; see ProductDaoTest.deleteProduct_productWithItems_cascadesToItems. */
     fun deleteItemsByProduct(productId: Int) {
         _items.value = _items.value.filter { it.productId != productId }
     }
@@ -833,10 +807,8 @@ private class FakeSyncRepository : FirestoreSyncRepository {
     val itemUpdates = mutableListOf<Triple<String, List<FirestoreItem>, Long>>()
     val upserts = mutableListOf<FirestoreProduct>()
 
-    /** The backend's contents: what fetchAll returns and what listenToChanges emits. */
     val remote = MutableStateFlow<List<FirestoreProduct>>(emptyList())
 
-    /** When set, every remote call throws it — stands in for Firestore rejecting the operation. */
     var failure: Exception? = null
 
     private var nextId = 0

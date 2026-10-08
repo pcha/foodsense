@@ -5,9 +5,6 @@ on:
     branches: [ develop ]
   pull_request:
 
-# El plugin de Google Services necesita la configuración de la variante debug incluso para los
-# tests JVM; el archivo se inyecta desde un secret y no se versiona.
-
 jobs:
   unit:
     name: Unit tests + lint
@@ -47,7 +44,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # El emulador de Firestore es un jar y firebase-tools exige Java 21 o superior.
       - uses: actions/setup-java@v4
         with:
           java-version: '21'
@@ -62,7 +58,6 @@ jobs:
       - run: npm ci
         working-directory: firebase
 
-      # emulators:exec levanta el emulador, corre vitest y lo baja, propagando el exit code.
       - run: npm test
         working-directory: firebase
 
@@ -93,8 +88,6 @@ jobs:
           cache: npm
           cache-dependency-path: firebase/package-lock.json
 
-      # El build service FirebaseEmulators invoca `npx firebase`, que resuelve al binario de
-      # firebase/node_modules. Sin este install npx intentaría bajarlo del registry.
       - run: npm ci
         working-directory: firebase
 
@@ -104,8 +97,6 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # Los emuladores de Firestore y Auth los levanta y baja el build service de
-      # app/build.gradle.kts, así que acá sólo hace falta el emulador de Android.
       - name: Run instrumented tests
         uses: reactivecircus/android-emulator-runner@v2
         with:

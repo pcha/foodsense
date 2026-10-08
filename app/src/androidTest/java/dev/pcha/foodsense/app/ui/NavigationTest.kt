@@ -23,17 +23,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
-/**
- * Cubre el gate de navegación de [MainNavigation]: a dónde arranca la app según el flag de
- * onboarding y si hay sesión, y la ida y vuelta a Login desde la lista.
- *
- * `AuthModule` y `PreferencesModule` se desinstalan para no depender de Firebase ni de DataStore.
- * `DataModule` ya lo reemplaza `FakeDataModule`, así que la lista muestra [fakeProducts].
- *
- * El contenido se compone acá sobre [HiltTestActivity] en vez de lanzar `MainActivity`: cuando la
- * activity hace su propio `setContent`, el árbol no queda registrado en el test rule y toda
- * aserción falla con "No compose hierarchies found".
- */
 @HiltAndroidTest
 @UninstallModules(AuthModule::class, PreferencesModule::class)
 class NavigationTest {
@@ -54,7 +43,6 @@ class NavigationTest {
 
     private val onboarding get() = onboardingRepository as FakeOnboardingRepository
 
-    /** Vía recursos, no literales: renombrar un string ahora rompe la compilación, no el test. */
     private fun string(@StringRes id: Int) = composeTestRule.activity.getString(id)
 
     @Before
