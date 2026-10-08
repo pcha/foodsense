@@ -103,6 +103,7 @@ private fun CameraCapture(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val imageCapture = remember { ImageCapture.Builder().build() }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
@@ -168,11 +169,13 @@ private fun CameraCapture(
                                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                                     val bitmap = BitmapFactory.decodeFile(file.absolutePath)
                                     file.delete()
-                                    if (bitmap != null) onImageCaptured(bitmap) else isProcessing = false
+                                    mainExecutor.execute {
+                                        if (bitmap != null) onImageCaptured(bitmap) else isProcessing = false
+                                    }
                                 }
                                 override fun onError(exc: ImageCaptureException) {
                                     file.delete()
-                                    isProcessing = false
+                                    mainExecutor.execute { isProcessing = false }
                                 }
                             }
                         )

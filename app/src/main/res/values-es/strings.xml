@@ -39,6 +39,9 @@
     <string name="scan_take_photo">Tomar foto</string>
     <string name="action_capture">Capturar</string>
     <string name="date_scan_not_found">No se encontró ninguna fecha. Intentá de nuevo.</string>
+    <string name="scan_product_not_found">No se encontró ningún producto.</string>
+    <string name="scan_capture_failed">No se pudo capturar la imagen. Intentá de nuevo.</string>
+    <string name="scan_processing_failed">No se pudo procesar la imagen. Intentá de nuevo.</string>
     <string name="remember_barcode">Recordar este código de barras</string>
 
     <string name="label_added_date">Agregado: %1$s</string>

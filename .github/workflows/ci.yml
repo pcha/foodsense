@@ -12,14 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Write google-services.json (debug)
-        run: |
-          if [ -z "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" ]; then
-            echo "::error::Falta GOOGLE_SERVICES_JSON_DEBUG (base64 del google-services.json para dev.pcha.foodsense.app.dev)."
-            exit 1
-          fi
-          echo "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" | base64 -d > app/google-services.json
-
       - uses: actions/setup-java@v4
         with:
           java-version: '21'
@@ -66,14 +58,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Write google-services.json (debug)
-        run: |
-          if [ -z "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" ]; then
-            echo "::error::Falta GOOGLE_SERVICES_JSON_DEBUG (base64 del google-services.json para dev.pcha.foodsense.app.dev)."
-            exit 1
-          fi
-          echo "${{ secrets.GOOGLE_SERVICES_JSON_DEBUG }}" | base64 -d > app/google-services.json
 
       - uses: actions/setup-java@v4
         with:

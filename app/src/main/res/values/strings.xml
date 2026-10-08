@@ -55,6 +55,9 @@
     <string name="scan_take_photo">Take photo</string>
     <string name="action_capture">Capture</string>
     <string name="date_scan_not_found">No date found. Try again.</string>
+    <string name="scan_product_not_found">No product found.</string>
+    <string name="scan_capture_failed">Couldn\'t capture the image. Try again.</string>
+    <string name="scan_processing_failed">Couldn\'t process the image. Try again.</string>
     <string name="remember_barcode">Remember this barcode</string>
 
     <string name="label_added_date">Added: %1$s</string>

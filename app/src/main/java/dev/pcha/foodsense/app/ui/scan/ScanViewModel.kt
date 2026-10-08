@@ -20,6 +20,8 @@ import javax.inject.Inject
 
 enum class ScanPhase { Barcode, Ocr }
 
+enum class ScanError { ProductNotFound, CaptureFailed, ProcessingFailed }
+
 data class PendingBarcodeResult(
     val barcode: String,
     val product: BarcodeProduct,
@@ -29,7 +31,7 @@ data class PendingBarcodeResult(
 data class ScanUiState(
     val phase: ScanPhase = ScanPhase.Barcode,
     val isProcessing: Boolean = false,
-    val error: String? = null,
+    val error: ScanError? = null,
     val pendingResult: PendingBarcodeResult? = null,
 )
 
@@ -140,11 +142,15 @@ class ScanViewModel @Inject constructor(
                     return@launch
                 }
 
-                _uiState.update { it.copy(isProcessing = false, error = "No se encontró ningún producto") }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isProcessing = false, error = e.message) }
+                _uiState.update { it.copy(isProcessing = false, error = ScanError.ProductNotFound) }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isProcessing = false, error = ScanError.ProcessingFailed) }
             }
         }
+    }
+
+    fun onCaptureError() {
+        _uiState.update { it.copy(isProcessing = false, error = ScanError.CaptureFailed) }
     }
 
     private fun BarcodeResult.toPending(barcode: String) =

@@ -44,7 +44,7 @@ class ExpirationNotificationWorker @AssistedInject constructor(
         val body = productNames.joinToString(", ")
 
         val notification = NotificationCompat.Builder(applicationContext, FoodSense.EXPIRATION_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_dev_foreground)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

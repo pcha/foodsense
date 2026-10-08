@@ -69,6 +69,16 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun onCaptureError_stopsProcessingAndExposesCaptureFailure() = runTest {
+        val vm = viewModel(FakeBarcodeRepository())
+
+        vm.onCaptureError()
+
+        assertEquals(ScanError.CaptureFailed, vm.uiState.value.error)
+        assertEquals(false, vm.uiState.value.isProcessing)
+    }
+
+    @Test
     fun confirmPendingResult_notFromCache_savesToRegistry() = runTest {
         val repo = FakeBarcodeRepository().apply {
             results["123"] = BarcodeResult(BarcodeProduct("Eggs", null), fromCache = false)

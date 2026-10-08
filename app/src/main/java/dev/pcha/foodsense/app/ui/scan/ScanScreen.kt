@@ -106,13 +106,18 @@ fun ScanScreen(
                         onResult(null, result.productName, qty, unit, result.expirationDate)
                     }
                 },
+                onCaptureError = viewModel::onCaptureError,
                 onCancel = onCancel,
             )
         }
 
         if (uiState.error != null) {
             Text(
-                text = uiState.error!!,
+                text = when (uiState.error!!) {
+                    ScanError.ProductNotFound -> stringResource(R.string.scan_product_not_found)
+                    ScanError.CaptureFailed -> stringResource(R.string.scan_capture_failed)
+                    ScanError.ProcessingFailed -> stringResource(R.string.scan_processing_failed)
+                },
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -176,8 +181,6 @@ private fun BarcodeScannerView(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
-    var lastDetectedBarcode by remember { mutableStateOf<String?>(null) }
-
     DisposableEffect(Unit) {
         onDispose {
             executor.shutdown()
@@ -206,10 +209,7 @@ private fun BarcodeScannerView(
                                         imageProxy.imageInfo.rotationDegrees,
                                         { imageProxy.close() },
                                     ) { code ->
-                                        if (code != lastDetectedBarcode && !isProcessing) {
-                                            lastDetectedBarcode = code
-                                            onBarcodeDetected(code)
-                                        }
+                                        onBarcodeDetected(code)
                                     }
                                 } else {
                                     imageProxy.close()
@@ -252,11 +252,13 @@ private fun BarcodeScannerView(
 private fun OcrCaptureView(
     isProcessing: Boolean,
     onImageCaptured: (android.graphics.Bitmap) -> Unit,
+    onCaptureError: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val imageCapture = remember { ImageCapture.Builder().build() }
 
     DisposableEffect(Unit) {
@@ -305,10 +307,13 @@ private fun OcrCaptureView(
                                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                                     val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
                                     file.delete()
-                                    if (bitmap != null) onImageCaptured(bitmap)
+                                    mainExecutor.execute {
+                                        if (bitmap != null) onImageCaptured(bitmap) else onCaptureError()
+                                    }
                                 }
                                 override fun onError(exc: ImageCaptureException) {
                                     file.delete()
+                                    mainExecutor.execute { onCaptureError() }
                                 }
                             }
                         )
