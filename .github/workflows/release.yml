@@ -103,6 +103,32 @@ jobs:
           test -f "$APK" || { echo "::error::No se generó $APK; el build quedó sin firmar."; exit 1; }
           "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK"
 
+      # Play Store publishing is intentionally disabled. To enable it, uncomment this block and
+      # add GOOGLE_PLAY_SERVICE_ACCOUNT as a repository secret containing the service account JSON.
+      # The service account needs Play Console access for the app. Publishing starts on the internal
+      # track so it can be verified before promoting a release to testing or production.
+      #
+      # - name: Build signed release AAB
+      #   if: steps.changelog.outputs.skipped == 'false'
+      #   env:
+      #     RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+      #     RELEASE_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      #     RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      #     RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      #   run: |
+      #     ./gradlew bundleRelease \
+      #       -PversionName=${{ steps.changelog.outputs.version }} \
+      #       -PversionCode=${{ github.run_number }}
+      #
+      # - name: Publish to Google Play internal track
+      #   if: steps.changelog.outputs.skipped == 'false'
+      #   uses: r0adkll/upload-google-play@v1
+      #   with:
+      #     serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+      #     packageName: dev.pcha.foodsense.app
+      #     releaseFiles: app/build/outputs/bundle/release/app-release.aab
+      #     track: internal
+
       - name: Remove the keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
