@@ -15,39 +15,70 @@
   -->
 
 <resources>
-    <string name="app_name">FoodSense</string>
+    <string name="app_name" translatable="false">FoodSense</string>
 
-    <!-- Notification -->
     <string name="notification_channel_name">Expiration Alerts</string>
     <string name="notification_title_singular">1 product expires tomorrow</string>
     <string name="notification_title_plural">%1$d products expire tomorrow</string>
 
-    <!-- Content descriptions -->
     <string name="cd_add_product">Add product</string>
     <string name="cd_add_items">Add items</string>
     <string name="cd_edit_product">Edit</string>
     <string name="cd_edit_group">Edit group</string>
     <string name="cd_delete">Delete</string>
+    <string name="cd_account">Account</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_show_password">Show password</string>
+    <string name="cd_hide_password">Hide password</string>
+    <string name="cd_scan_product">Scan product</string>
+    <string name="cd_scan_date">Scan date</string>
 
-    <!-- Product card -->
+    <string name="account_sign_out">Sign out</string>
+
+    <string name="login_title_sign_in">Sign in</string>
+    <string name="login_title_register">Create account</string>
+    <string name="login_continue_with_google">Continue with Google</string>
+    <string name="login_divider_or">or</string>
+    <string name="login_email_label">Email</string>
+    <string name="login_password_label">Password</string>
+    <string name="login_action_sign_in">Sign in</string>
+    <string name="login_action_register">Sign up</string>
+    <string name="login_switch_to_register">Don\'t have an account? Sign up</string>
+    <string name="login_switch_to_sign_in">Already have an account? Sign in</string>
+    <string name="login_continue_without_account">Continue without an account</string>
+
+    <string name="camera_permission_required">Camera permission required</string>
+    <string name="scan_confirm_product_question">Is this the product?</string>
+    <string name="scan_confirm_yes">Yes, that\'s right</string>
+    <string name="scan_confirm_no">That\'s not it</string>
+    <string name="scan_photograph_label">Photograph label</string>
+    <string name="scan_take_photo">Take photo</string>
+    <string name="action_capture">Capture</string>
+    <string name="date_scan_not_found">No date found. Try again.</string>
+    <string name="scan_product_not_found">No product found.</string>
+    <string name="scan_capture_failed">Couldn\'t capture the image. Try again.</string>
+    <string name="scan_processing_failed">Couldn\'t process the image. Try again.</string>
+    <string name="remember_barcode">Remember this barcode</string>
+
     <string name="label_added_date">Added: %1$s</string>
+    <string name="section_header_with_count">%1$s (%2$d)</string>
+    <string name="quantity_without_unit">Qty: %1$s</string>
+    <string name="quantity_multiplier">%1$d × %2$s</string>
 
-    <!-- Delete dialog -->
     <string name="dialog_delete_title">How many to remove?</string>
     <string name="dialog_delete_count_label">Count (max %1$d)</string>
 
-    <!-- Section headers -->
+    <string name="sync_error">Couldn\'t sync with the cloud. Changes are saved on this device.</string>
+
     <string name="section_expiring_soon">Expiring soon</string>
     <string name="section_ok">Remaining</string>
     <string name="section_no_expiry">No expiry date</string>
     <string name="section_expired">Expired</string>
 
-    <!-- Added labels -->
     <string name="added_today">Added today</string>
     <string name="added_yesterday">Added yesterday</string>
     <string name="added_ago">Added %1$s ago</string>
 
-    <!-- Expiry labels -->
     <string name="expiry_today">Expires today</string>
     <string name="expiry_tomorrow">Expires tomorrow</string>
     <string name="expired_yesterday">Expired yesterday</string>
@@ -55,7 +86,6 @@
     <string name="expired_ago">Expired %1$s ago</string>
     <string name="expiry_and">%1$s and %2$s</string>
 
-    <!-- Form fields -->
     <string name="field_product_name">Product name</string>
     <string name="field_quantity">Quantity</string>
     <string name="field_number_of_items">Number of items</string>
@@ -69,7 +99,6 @@
     <string name="btn_add_product">Add product</string>
     <string name="field_unit">Unit</string>
 
-    <!-- Expiry plurals -->
     <plurals name="expiry_days">
         <item quantity="one">%1$d day</item>
         <item quantity="other">%1$d days</item>
