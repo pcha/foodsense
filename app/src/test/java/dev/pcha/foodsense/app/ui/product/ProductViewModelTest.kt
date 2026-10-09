@@ -152,6 +152,22 @@ class ProductViewModelTest {
     }
 
     @Test
+    fun openAddSheetWithScanResult_centiliters_normalizesQuantityToMilliliters() = runTest {
+        val viewModel = ProductViewModel(FakeProductRepository(), FakeBarcodeRepository(), FakeTextRecognizer())
+
+        viewModel.openAddSheetWithScanResult(
+            barcode = null,
+            name = "Soda",
+            quantityStr = "33",
+            unit = "CL",
+            dateStr = null,
+        )
+
+        assertEquals("330", viewModel.uiState.value.formQuantity)
+        assertEquals(ProductUnit.ML, viewModel.uiState.value.formUnit)
+    }
+
+    @Test
     fun addProduct_inQuickAddMode_addsItemToExistingProduct() = runTest {
         val repo = FakeProductRepository()
         val viewModel = ProductViewModel(repo, FakeBarcodeRepository(), FakeTextRecognizer())

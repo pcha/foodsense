@@ -194,7 +194,7 @@ class ProductViewModel @Inject constructor(
         unit: String?,
         dateStr: String?,
     ) {
-        val parsedQty = parseQuantity(quantityStr)
+        val parsedQty = parseQuantity(quantityStr, unit)
         val parsedUnit = parseUnit(unit)
         val parsedDate = parseDateStr(dateStr)
         val qtyStr = parsedQty?.let {
@@ -215,8 +215,10 @@ class ProductViewModel @Inject constructor(
         }
     }
 
-    private fun parseQuantity(str: String?): Float? =
-        str?.replace(',', '.')?.toFloatOrNull()?.takeIf { it > 0f }
+    private fun parseQuantity(str: String?, unit: String?): Float? =
+        str?.replace(',', '.')?.toFloatOrNull()?.takeIf { it > 0f }?.let { quantity ->
+            if (unit.equals("CL", ignoreCase = true)) quantity * 10 else quantity
+        }
 
     private fun parseUnit(str: String?): ProductUnit? = when (str?.uppercase()) {
         "L" -> ProductUnit.L
