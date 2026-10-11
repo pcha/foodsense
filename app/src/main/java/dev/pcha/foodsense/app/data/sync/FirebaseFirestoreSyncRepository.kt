@@ -1,5 +1,6 @@
 package dev.pcha.foodsense.app.data.sync
 
+import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
@@ -34,13 +35,20 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
             },
         )
         val collection = productsCollection(userId)
-        val resolvedServerId = if (product.serverId.isNotBlank()) {
-            collection.document(product.serverId).set(data, SetOptions.merge()).await()
-            product.serverId
-        } else {
-            collection.add(data).await().id
-        }
+        val resolvedServerId = upsertProductDocument(collection, product.serverId, data)
         return product.copy(serverId = resolvedServerId, items = resolvedItems)
+    }
+
+    private suspend fun upsertProductDocument(
+        collection: CollectionReference,
+        serverId: String,
+        data: Map<String, Any?>,
+    ): String {
+        if (serverId.isNotBlank()) {
+            collection.document(serverId).set(data, SetOptions.merge()).await()
+            return serverId
+        }
+        return collection.add(data).await().id
     }
 
     override suspend fun deleteProduct(userId: String, serverId: String) {
