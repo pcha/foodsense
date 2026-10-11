@@ -1,16 +1,16 @@
 # FoodSense
 
-Android app to manage food items in the pantry and fridge, tracking expiration dates.
+Android app for managing food stored at home, focused on pantry/fridge inventory and expiration dates.
 
-## Skills disponibles
+## Project-specific guidance
 
-Antes de implementar cualquier cosa, consultá estas skills del proyecto:
+Before implementing non-trivial Android changes, review the project skills if they are available in the current environment:
 
-- `/android_architecture_principles` — cuatro principios no negociables de arquitectura
-- `/android_layers` — stack de tres capas (UI → Domain → Data)
+- `/android_architecture_principles` — non-negotiable Android architecture principles
+- `/android_layers` — three-layer stack: UI → Domain → Data
 - `/android_ui_layer` — UDF, ViewModel, UiState, Compose
-- `/android_viewmodel` — reglas del ViewModel (lifecycle, coroutines, state)
-- `/android_data_layer` — estructura de repositorios, fuentes de datos
+- `/android_viewmodel` — ViewModel rules: lifecycle, coroutines, state
+- `/android_data_layer` — repository and data source structure
 - `/android_di_testing` — Hilt, fakes, unit tests
 
 ## Project info
@@ -18,242 +18,277 @@ Antes de implementar cualquier cosa, consultá estas skills del proyecto:
 - **Package:** `dev.pcha.foodsense.app`
 - **Min SDK:** 26
 - **Target SDK:** 36
+- **Module structure:** single Android module, `:app`
+- **Room schema:** version 7
 
 ## Tech stack
 
-- Jetpack Compose + Material3
-- Hilt (dependency injection)
-- Room (local database, actualmente en schema versión 7)
-- Firebase Auth (Google + email/password) + Cloud Firestore (sync multi-dispositivo)
-- WorkManager (`@HiltWorker` + `HiltWorkerFactory`) — notificaciones de vencimiento y sync periódico
-- Navigation 3
-- CameraX (`camera-camera2`, `camera-lifecycle`, `camera-view`)
-- ML Kit Text Recognition (`play-services-mlkit-text-recognition`)
-- ML Kit Barcode Scanning (`play-services-mlkit-barcode-scanning`)
+- Kotlin
+- Jetpack Compose + Material 3
+- Hilt for dependency injection
+- Room as the local database
+- Preferences DataStore for onboarding state
+- Firebase Auth: Google Sign-In and email/password
+- Cloud Firestore for multi-device sync
+- WorkManager with Hilt workers for expiration notifications and periodic sync
+- Navigation 3 with typed `NavKey` destinations
+- CameraX: `camera-camera2`, `camera-lifecycle`, `camera-view`
+- ML Kit Text Recognition
+- ML Kit Barcode Scanning
 - Kotlin Coroutines + Flow
-- Single-module (`base` template)
+- Coil for image loading
 
-## Dominio
+## Domain model
 
-La entidad central es `Product` — un alimento en la despensa o heladera con fecha de vencimiento.
+The central concept is `Product`: a food product stored by the user.
 
-Conceptos clave:
-- La fecha de vencimiento es el dato central: determina el ordenamiento, alertas y estado del producto
-- Un producto puede estar en estado: expirado, por vencer pronto, o bien
-- Los productos tienen ítems individuales (misma cantidad/unidad/fecha se agrupan en la UI)
-- Los ítems se pueden agregar en lote (batch) o editar en grupo
+Key concepts:
 
-## Arquitectura
+- Expiration date is the main business signal. It controls sorting, grouping, warnings, and status.
+- A product can be expired, expiring soon, OK, or have no expiration date.
+- Products contain individual `Item`s. Items with the same quantity, unit, and expiration date are grouped in the UI.
+- Items can be added in batches and edited as groups.
+- Product names act as the natural key in local add flows: adding the same name appends items to the existing product.
 
-Sigue la arquitectura por capas de Android (UI → Data):
-- **UI layer:** Compose screens + ViewModels con UiState como data class
-- **Data layer:** repositorios Room (`ProductRepository`) + repositorios externos (`BarcodeRepository`)
-- Sin capa de dominio por ahora — agregar use cases sólo si la lógica del ViewModel se vuelve compleja o compartida
+## Architecture
 
-## Estructura de pantallas
+The project currently follows a two-layer Android architecture:
 
-```
-ui/
-├── Navigation.kt           — NavDisplay con back stack
-├── NavigationKeys.kt       — destinos tipados (Main, Scan)
-├── product/
-│   ├── ProductScreen.kt    — pantalla principal con lista y AddProductForm
-│   ├── ProductViewModel.kt — estado de la lista + form + date scanner
-│   └── DateScanSheet.kt    — ModalBottomSheet con preview de cámara para escanear fecha
-└── scan/
-    ├── ScanScreen.kt       — flujo de escaneo (barcode → OCR label)
-    ├── ScanViewModel.kt    — lógica del scanner y lookup de barcode
-    └── OcrExtractor.kt     — extracción de texto OCR (nombre, cantidad, fecha, barcode)
+```text
+UI layer -> Data layer
 ```
 
-## Flujo de escaneo de productos
+- **UI layer:** Compose screens + ViewModels. ViewModels expose immutable `UiState` data classes and receive UI events.
+- **Data layer:** repositories and data sources for Room, Firebase Auth, Firestore sync, barcode lookup, preferences, and ML Kit wrappers.
+- There is no dedicated domain layer yet. Add use cases only when logic becomes complex, shared, or difficult to test inside a ViewModel/repository.
 
-1. **Barcode scanner** (fase por defecto): detecta código de barras en tiempo real con `ImageAnalysis`
-   - Lookup en `BarcodeRepository` (caché local Room → Open Food Facts API)
-   - Si encontrado: muestra `ModalBottomSheet` de confirmación; el usuario acepta o rechaza
-   - Si rechazado desde caché: borra la entrada local
-   - Si no encontrado: pasa a OCR
-2. **OCR de etiqueta**: captura foto con `ImageCapture`, extrae nombre/cantidad/fecha/barcode
-   - Si detecta barcode en la imagen: intenta lookup primero
-   - Si extrae nombre: retorna al form con datos pre-cargados
-3. **Checkbox "Recordar barcode"**: sólo visible cuando hay `pendingBarcode` Y el usuario modifica el nombre pre-cargado (`originalFormName` en UiState)
+Important boundaries:
 
-## Scanner de fecha de vencimiento
+- ViewModels must not access Room DAOs directly. Use repositories.
+- ViewModels and composables must not import Firebase, DataStore, or ML Kit SDK types directly.
+- Data layer SDK types must be mapped to app/domain models before reaching the UI.
 
-- Botón de cámara junto al date picker en `AddProductForm`
-- Abre `DateScanSheet`: `ModalBottomSheet` con preview de cámara (CameraX)
-- `isProcessing` es estado **local** del composable, no del ViewModel — se activa al capturar, se resetea vía `LaunchedEffect(error)`
-- El ViewModel expone sólo `showDateScanner` y `dateScanError` en `ProductUiState`
-- `parseDateStr` en `ProductViewModel` maneja:
-  - Formatos numéricos: `dd/MM/yyyy`, `dd/MM/yy`, `MM/yyyy` (fin de mes), separadores `.` `-` `/`
-  - Nombres de mes: `d MMM yyyy`, `MMM yyyy` (fin de mes) — con fallback locale (dispositivo → EN → ES)
-  - Desambiguación dd/mm vs mm/dd por locale del dispositivo (en_US → mes primero)
+## Main source layout
 
-## Capa de datos — BarcodeRepository
-
+```text
+app/src/main/java/dev/pcha/foodsense/app/
+├── data/
+│   ├── auth/          # AuthRepository, FirebaseAuthRepository, User model
+│   ├── barcode/       # BarcodeRepository, Room cache, Open Food Facts lookup
+│   ├── local/         # Room database, entities, DAOs, migrations
+│   ├── mlkit/         # TextRecognizer and BarcodeImageScanner abstractions
+│   ├── preferences/   # OnboardingRepository backed by Preferences DataStore
+│   └── sync/          # Firestore sync repository and SyncWorker
+├── notification/      # ExpirationNotificationWorker
+└── ui/
+    ├── auth/          # LoginScreen and AuthViewModel
+    ├── product/       # ProductScreen, ProductViewModel, DateScanSheet
+    ├── scan/          # ScanScreen, ScanViewModel, OcrExtractor
+    ├── Navigation.kt
+    └── NavigationKeys.kt
 ```
+
+## Navigation and auth gate
+
+- `NavigationKeys.kt` defines typed Navigation 3 destinations: `Main`, `Scan`, and `Login`.
+- `Navigation.kt` owns the back stack via `rememberNavBackStack(Main)`.
+- `AuthViewModel` exposes the current user and onboarding-completed flag.
+- The login gate runs once after onboarding state has loaded. It opens `Login` only when onboarding is not completed and there is no current user.
+- `LoginScreen` reflects state and delegates actions to `AuthViewModel`; it should not access Firebase directly.
+
+## Product scanning flow
+
+1. The scan screen starts in barcode mode and analyzes CameraX frames in real time with ML Kit Barcode Scanning.
+2. `BarcodeRepositoryImpl` checks the local Room barcode registry first, then Open Food Facts.
+3. If a product is found, the user sees a confirmation sheet.
+4. If the user rejects a cached result, the local barcode entry is deleted.
+5. If no product is found or the result is rejected, the flow can switch to OCR.
+6. OCR captures a label image, then `OcrExtractor` tries to extract product name, quantity, expiration date, and barcode.
+7. The scan result returns to `ProductViewModel`, which opens the add-product form with prefilled fields.
+
+### Remembering barcodes
+
+The “Remember barcode” checkbox is shown only when:
+
+- `pendingBarcode != null`, and
+- the user changed the prefilled name from `originalFormName`.
+
+This avoids saving an already-known barcode/name pair unless the user corrected it.
+
+## Expiration date scanner
+
+- The add-product form has a camera button next to the date picker.
+- It opens `DateScanSheet`, a `ModalBottomSheet` with a CameraX preview.
+- `isProcessing` is local composable state, not ViewModel state.
+- `ProductViewModel` exposes only `showDateScanner` and `dateScanError` in `ProductUiState`.
+- `parseDateStr` in `ProductViewModel` handles:
+  - numeric formats such as `dd/MM/yyyy`, `dd/MM/yy`, and `MM/yyyy`;
+  - separators `.`, `-`, and `/`;
+  - month-name formats such as `d MMM yyyy` and `MMM yyyy`;
+  - month-only dates by resolving to the end of the month;
+  - locale-based `dd/mm` vs `mm/dd` disambiguation, with `en_US` treated as month-first.
+
+## Data layer: barcode lookup
+
+```text
 data/barcode/
-├── BarcodeRepository.kt            — interfaz: lookup / save / delete
-├── BarcodeRepositoryImpl.kt        — composición: caché local + Open Food Facts
-├── LocalBarcodeRegistry.kt         — Room DAO wrapper (BarcodeEntry, tabla en schema v5)
-└── OpenFoodFactsBarcodeRepository  — HTTP a open.fda.gov / openfoodfacts.org
+├── BarcodeRepository.kt
+├── BarcodeRepositoryImpl.kt
+├── BarcodeEntry.kt
+├── LocalBarcodeRegistry.kt
+├── OpenFoodFactsBarcodeRepository.kt
+└── di/BarcodeModule.kt
 ```
 
-Migraciones Room recientes: v5 agrega `barcode_registry`; v6 agrega `serverId` a `product` e `item` (sync); v7 agrega `updatedAt` a `product` (last-write-wins).
+The implementation composes:
 
-## Capa de datos — Sync offline-first (Firestore)
+- a local Room cache, and
+- a remote Open Food Facts lookup.
 
-Room es el **SSOT**; la UI lee sólo de Room. Firestore sincroniza en background. Los writes
-son optimistas: primero Room, después push a Firestore vía `syncIfAuthenticated` en `appScope`.
+Recent Room migration context:
 
-```
+- v5 added `barcode_registry`.
+- v6 added `serverId` to `product` and `item` for sync.
+- v7 added `updatedAt` to `product` for last-write-wins conflict resolution.
+
+## Data layer: offline-first Firestore sync
+
+Room is the single source of truth. The UI reads from Room only. Firestore sync runs in the background.
+
+```text
 data/sync/
-├── FirestoreSyncRepository.kt         — interfaz + modelos de red (FirestoreProduct/Item)
-├── FirebaseFirestoreSyncRepository.kt — impl: upsert / delete / updateItems / listenToChanges (snapshot)
-└── SyncWorker.kt                      — reconciliación periódica (fetchAll → applyRemoteChanges)
+├── FirestoreSyncRepository.kt
+├── FirebaseFirestoreSyncRepository.kt
+├── SyncWorker.kt
+└── di/SyncModule.kt
 ```
 
-Reglas clave del sync (en `DefaultProductRepository`):
-- **Modelos por capa:** `FirestoreProduct` (red) ↔ `ProductEntity` (Room) ↔ `Product` (dominio/UI).
-- **`serverId`** en Room mapea la fila local al doc de Firestore; se asigna en Room ANTES de que
-  llegue el snapshot para no duplicar.
-- **Last-write-wins:** cada mutación sella `product.updatedAt = System.currentTimeMillis()` (desde
-  el repo, nunca desde la entidad). `applyRemoteChanges` descarta el remoto si
-  `remote.updatedAt < local.updatedAt`, así un edit local no sincronizado no se pisa.
-- **Persistencia offline de Firestore** habilitada explícita en `SyncModule` → writes encolados en
-  disco (sobreviven cierre de app) + reads desde caché. No hay cola de writes propia.
-- **`SyncStatus`** (`Idle/Syncing/Error`) se expone como `Flow` desde el repo → `uiState.syncError`
-  → banner discreto en `ProductScreen`. El listener setea `Error` en `.catch` (no lo traga).
-- **Logout:** `clearLocalData()` borra sólo lo sincronizado (`deleteSyncedProducts`, `serverId != null`);
-  conserva lo local-only, que `migrateLocalDataToFirestore` sube al re-loguear.
-- Métodos `internal` (`applyRemoteChanges`, `clearLocalData`) para poder testearlos con fakes.
-- **Al aplicar el remoto se reemplazan TODOS los ítems locales**, sin intentar distinguir cuáles ya
-  están en Firestore. Con la cola offline, un ítem con `serverId == null` puede estar igual en el
-  servidor, y conservarlo duplica la copia que trae el snapshot. Ya se intentó dos veces afinar esto
-  y las dos duplicó — ver [docs/pending-plans/stable-sync-ids.md](docs/pending-plans/stable-sync-ids.md)
-  antes de volver a tocarlo.
+Core rules implemented in `DefaultProductRepository`:
 
-## Planes pendientes
+- **Models stay layer-specific:** `FirestoreProduct` / `FirestoreItem` for network, Room entities for persistence, `Product` / `Item` for UI-facing app models.
+- **Optimistic local writes:** product mutations update Room first, then push to Firestore via `syncIfAuthenticated` in `appScope`.
+- **`serverId` maps Room rows to Firestore documents.** For new products, the product `serverId` is written to Room immediately after the first successful Firestore upsert so snapshot listeners do not insert duplicates.
+- **Item `serverId`s are persisted only after a successful push.** Do not assign them up front: an item with a `serverId` means “confirmed on the server”.
+- **Last-write-wins:** repository mutations stamp `product.updatedAt = System.currentTimeMillis()`. `applyRemoteChanges` skips a remote product when `remote.updatedAt < local.updatedAt`.
+- **Firestore offline persistence is enabled** in `SyncModule`; queued Firestore writes survive app restarts. There is no custom local write queue.
+- **`SyncStatus`** is exposed as a `Flow` from the repository. UI turns sync errors into a discreet banner.
+- **Sign-out:** `clearLocalData()` deletes synchronized products only (`serverId != null`) and keeps local-only data for migration on the next login.
+- **Remote item application replaces all local items** for the product. This is intentional: keeping local unsynced-looking items while Firestore offline writes are replayed has caused duplicate items in previous attempts.
+- **Duplicate remote names converge deterministically:** remote documents with the same name collapse into one local row; the lexicographically smallest `serverId` wins and items are unioned by remote item id.
 
-`docs/pending-plans/` guarda propuestas ya analizadas pero sin implementar. Consultarlas antes de
-encarar algo de la capa de sync: suelen explicar por qué el código está como está.
+The sync code is delicate. Before changing it, read `DefaultProductRepositoryTest` and any local notes under `docs/pending-plans/` if present. Some pending design notes are intentionally local/private and may not be committed.
 
-## Capa de datos — otros data sources
+## Other data sources
 
-- **Auth:** `AuthRepository` expone un modelo de dominio propio `User` (`data/auth/User.kt`), NO
-  `FirebaseUser`. `FirebaseAuthRepository` mapea `FirebaseUser → User`. La UI/ViewModel nunca ven
-  tipos del SDK de Firebase.
-- **Preferencias:** `OnboardingRepository` (`data/preferences/`) con **Preferences DataStore**
-  guarda el flag de onboarding. `Navigation` no toca `SharedPreferences` ni `FirebaseAuth` directo;
-  usa `AuthViewModel` (`currentUser`, `onboardingDone`, `completeOnboarding()`).
-- **ML on-device:** `data/mlkit/` — `TextRecognizer` (OCR) y `BarcodeImageScanner` (barcode)
-  envuelven ML Kit. Los ViewModels/composables inyectan estas interfaces; **no** importan
-  `TextRecognition`/`BarcodeScanning`/`InputImage`. CameraX (preview/analysis/capture) sí vive en
-  la UI porque es rendering; los composables pasan `Bitmap`/`android.media.Image` a los data sources.
+- **Auth:** `AuthRepository` exposes the app-owned `User` model from `data/auth/User.kt`; UI code must never depend on `FirebaseUser`.
+- **Preferences:** `OnboardingRepository` uses Preferences DataStore. Navigation should not read `SharedPreferences` or Firebase directly.
+- **ML Kit:** `data/mlkit/` wraps text recognition and barcode scanning behind app interfaces. ViewModels/composables should depend on those abstractions, not on ML Kit SDK classes.
+- **CameraX:** camera preview, analysis, and capture live in the UI layer because they are rendering/capture concerns. UI code passes `Bitmap` or `android.media.Image` to the data-source abstractions.
 
-## Recursos
+## Resources and localization
 
-- `res/drawable/ic_barcode.xml` — vector drawable custom (marcas de esquina + barras verticales)
+- Default resources live in `app/src/main/res/values/strings.xml` and are in English.
+- Spanish translations live in `app/src/main/res/values-es/strings.xml`.
+- Keep visible strings in resources; do not add new hardcoded UI text.
+- When adding a new visible string, add the default English value and update Spanish translations when appropriate.
+- Some older UI code may still contain hardcoded literals. Prefer moving them to resources when touching that area.
 
-### Idioma de los strings
+Useful resource:
 
-`values/strings.xml` está **mezclado**: lo viejo en inglés, y lo de login/cuenta en español porque
-se extrajo tal cual de literales hardcodeados. No hay `values-es/`. Antes de agregar traducciones
-hay que decidir un idioma para el default y mover el resto.
-
-Todo texto visible va en `strings.xml`, nunca hardcodeado: los tests instrumentados lo referencian
-por `R.string.*`, así que renombrar un string rompe la compilación en vez de romper el test en
-silencio. Todavía quedan literales en `ScanScreen`, `DateScanSheet` y parte de `ProductScreen`.
+- `res/drawable/ic_barcode.xml` — custom vector drawable for barcode scan affordance.
 
 ## Testing
 
-- Siempre escribir tests junto con cada feature — ninguna feature está completa sin ellos
-- Unit tests en `src/test/` (JVM, sin emulador)
-- Instrumented tests en `src/androidTest/` (requieren dispositivo/emulador)
-- Usar fakes sobre mocks — los fakes implementan la interfaz real con lógica en memoria
-- Los fakes usan `MutableStateFlow` para emitir valores reactivamente
-- Assertar sobre `uiState.value`, no `.first()` ni `.collect()`
-- Nombres de tests: `subject_condition_expectedResult`
-- Cada fake debe implementar completamente su interfaz incluyendo todos los métodos
+- Add tests with every feature or behavioral change.
+- JVM tests live in `app/src/test/`.
+- Instrumented tests live in `app/src/androidTest/` and require an Android device/emulator.
+- Prefer fakes over mocks.
+- Fakes should implement the full interface they stand in for.
+- Fakes that back observable state should use `MutableStateFlow` so tests stay reactive.
+- For ViewModel tests, assert on `uiState.value`; avoid fragile `.first()` / long-lived collection patterns unless specifically needed.
+- Test names should follow: `subject_condition_expectedResult`.
 
-### Emuladores de Firebase
+Existing test areas include:
 
-Los tests instrumentados **no necesitan preparación**: el build service `FirebaseEmulators` de
-`app/build.gradle.kts` levanta los emuladores antes de `connectedDebugAndroidTest`, espera a que
-respondan los puertos 8080 y 9099, y los baja al terminar el build.
+- `ProductViewModelTest`
+- `ScanViewModelTest`
+- `OcrExtractorTest`
+- `AuthViewModelTest`
+- `DefaultProductRepositoryTest`
+- `ProductDaoTest`
+- `BarcodeRepositoryImplTest`
+- `ProductScreenTest`
+- `NavigationTest`
+- `MigrationTest`
+- `FirebaseFirestoreSyncRepositoryTest`
+- Firebase rules tests in `firebase/rules.test.js`
+
+### Firebase emulators
+
+Instrumented tests do not need manual emulator setup. The `FirebaseEmulators` Gradle build service in `app/build.gradle.kts` starts Auth and Firestore emulators before `connectedDebugAndroidTest`, waits for ports `9099` and `8080`, and stops only the processes it started.
 
 ```bash
-./gradlew :app:connectedDebugAndroidTest   # levanta, corre y baja los emuladores solo
-cd firebase && npm test                    # tests de reglas (JS, con su propio emulators:exec)
-cd firebase && npm run emulators           # dejarlos corriendo durante el desarrollo
+./gradlew :app:connectedDebugAndroidTest
+cd firebase && npm test
+cd firebase && npm run emulators
 ```
 
-Si ya hay emuladores corriendo, el build service los detecta por los puertos, los reusa y **no los
-baja** al terminar — no te mata los que levantaste a mano.
+If emulators are already running, Gradle reuses them and does not stop them after the build.
 
-El CLI está instalado como devDependency dentro de `firebase/`, así que **hay que correrlo desde
-ese directorio** — desde la raíz npx falla con `could not determine executable to run`.
+The Firebase CLI is installed as a dev dependency in `firebase/`, so run Firebase commands from that directory.
 
-Si los emuladores no están arriba, los 9 tests de Firestore se **saltean** en vez de fallar: un
-servicio local apagado no es una regresión, y como falla taparía las que sí importan.
+If local emulators are unavailable for specific Firestore instrumented tests, those tests are designed to skip instead of hiding unrelated regressions behind an environment failure.
 
-### Tests instrumentados de Compose
+### Compose instrumented tests
 
-Componer el contenido desde el test sobre `HiltTestActivity` (`src/debug`), no lanzar `MainActivity`:
-cuando la activity hace su propio `setContent`, el árbol no queda registrado en el test rule y todo
-falla con "No compose hierarchies found". `HiltTestActivity` existe porque `MainNavigation()` usa
-`hiltViewModel()` y un `ComponentActivity` pelado no tiene inyección. Ver `NavigationTest`.
+Compose tests should set content from the test using `HiltTestActivity` (`src/debug`) instead of launching `MainActivity` directly. `MainActivity` owns its own `setContent`, which can leave the test rule without a registered Compose tree.
 
-### ML Kit y tests JVM
+`HiltTestActivity` exists because `MainNavigation()` uses `hiltViewModel()` and needs a Hilt-enabled `ComponentActivity`.
 
-ML Kit vive detrás de data sources (`data/mlkit/`), así que los ViewModels se testean con fakes
-(`FakeTextRecognizer`, `FakeBarcodeImageScanner`) y ya no aparece `MlKitContext has not been
-initialized`. `unitTests.isReturnDefaultValues = true` (en `build.gradle.kts`) hace que
-`android.util.Log` devuelva defaults en lugar de tirar excepción en tests JVM.
+### ML Kit and JVM tests
 
-### Test de migración Room
+ML Kit is behind data-source abstractions (`data/mlkit/`). ViewModel tests should use fakes such as `FakeTextRecognizer` and `FakeBarcodeImageScanner`.
 
-Los schemas se exportan a `app/schemas/` (`room.schemaLocation`) y se exponen a `androidTest` vía
-`sourceSets["androidTest"].assets.srcDir`. `MigrationTest` usa `MigrationTestHelper`
-(dep `androidx.room:room-testing`) para validar migraciones (requiere emulador).
+`unitTests.isReturnDefaultValues = true` lets Android framework calls such as `android.util.Log` return defaults in JVM tests instead of throwing.
 
-## CI y release
+### Room migration tests
 
-- **`ci.yml`** — push a `develop` y pull requests. Tres jobs en paralelo: unitarios + lint,
-  reglas de Firestore, e instrumentados en un emulador de Android (API 34, `google_apis`).
-- **`release.yml`** — push a `main`. El job `release` tiene `needs: test`, así que no publica nada
-  si los tests fallan. Versiona con conventional commits desde `.version.yml`, compila un APK
-  **firmado** y lo adjunta al GitHub Release. Play Store está fuera a propósito.
+Room schemas are exported to `app/schemas/` through `room.schemaLocation` and exposed to `androidTest` assets. `MigrationTest` uses Room’s `MigrationTestHelper` and requires an emulator/device.
 
-Secrets necesarios:
+## CI and release
 
-| Secret | Para qué |
-|---|---|
-| `GOOGLE_SERVICES_JSON_DEBUG` | base64 del `google-services.json` de debug (paquete `.dev`) |
-| `GOOGLE_SERVICES_JSON` | base64 del de release (paquete `dev.pcha.foodsense.app`) |
-| `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` | firma del APK |
+- `ci.yml` runs on pushes to `develop` and on pull requests.
+- CI has three main jobs: unit tests + lint, Firestore rules tests, and instrumented tests on an Android emulator.
+- `release.yml` runs on pushes to `main` and through manual dispatch.
+- Release tests must pass before publishing.
+- Releases use conventional commits via `.version.yml`, build a signed APK, deploy Firestore rules, and attach the APK to the GitHub Release.
+- Play Store publishing is intentionally disabled.
 
-Dos cosas que no son evidentes:
+Required GitHub configuration includes:
 
-- **Los tests JVM necesitan el `google-services.json` de debug.** El plugin de Google Services
-  genera recursos por variante y `testDebugUnitTest` los consume, más desde que activamos
-  `unitTests.isIncludeAndroidResources`. Sin ese secret el job falla antes del primer test.
-- **Debug y release usan archivos distintos**, porque el paquete difiere (`.dev` contra el pelado)
-  y un `google-services.json` sólo sirve para los paquetes que registra.
+| Name | Type | Purpose |
+|---|---|---|
+| `GOOGLE_SERVICES_JSON` | Secret | base64 release `google-services.json` for `dev.pcha.foodsense.app` |
+| `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` | Secrets | APK signing |
+| `FIREBASE_PROJECT_ID` | Repository variable | Firebase project for rules deployment |
+| `FIREBASE_SERVICE_ACCOUNT` | Secret | service account JSON for deploying Firestore rules |
 
-Localmente `assembleRelease` sigue produciendo `app-release-unsigned.apk` si no están las variables
-`RELEASE_KEYSTORE_*`, así que no hace falta tener el keystore para compilar.
+Notes:
 
-## Qué NO hacer
+- Release builds write `app/src/release/google-services.json` from the secret.
+- Debug builds use `applicationIdSuffix = ".dev"`.
+- A local release build needs `app/src/release/google-services.json` (which is ignored by Git).
+  With that file present, `assembleRelease` produces an unsigned APK when release signing
+  environment variables are absent.
 
-- No agregar features más allá de lo pedido
-- No usar `AndroidViewModel` — usar `ViewModel` con Hilt
-- No acceder a DAOs de Room directamente desde ViewModels — siempre ir a través del repositorio
-- No acceder a SDKs de data source (Firebase, ML Kit, DataStore/`SharedPreferences`) desde
-  composables ni ViewModels — envolverlos en un repositorio/data source e inyectar la interfaz
-- No exponer tipos del SDK por encima de la capa de datos (`FirebaseUser`, `@Entity` de Room, DTOs
-  de red) — mapear a modelos de dominio (p. ej. `User`)
-- No llamar a `LocalDate.now()` dentro de entidades — pasar timestamps desde el caller
-- No poner `isProcessing` del scanner de fecha en `UiState` — es estado local del composable
-- No usar `IconButton` fully-qualified (`androidx.compose.material3.IconButton`) — ya está importado
-- No compilar `Regex` inline dentro de funciones que se llaman frecuentemente — mover a companion object
+## Do not do this
+
+- Do not add features beyond the requested scope.
+- Do not use `AndroidViewModel`; use Hilt-injected `ViewModel`.
+- Do not access DAOs directly from ViewModels.
+- Do not expose Firebase, Room entity, DTO, DataStore, or ML Kit SDK types above the data layer.
+- Do not call `LocalDate.now()` inside entities; pass timestamps/dates from callers.
+- Do not move `DateScanSheet` processing state into `ProductUiState`; keep it local to the composable.
+- Do not use fully qualified `androidx.compose.material3.IconButton` when the symbol is already imported.
+- Do not compile hot-path regexes inline inside frequently called functions; move them to a companion object or shared constant.
+- Do not change sync reconciliation casually. Verify with repository tests and emulator-backed Firestore tests.
