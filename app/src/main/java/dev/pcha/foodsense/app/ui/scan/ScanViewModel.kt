@@ -47,10 +47,6 @@ class ScanViewModel @Inject constructor(
 
     fun switchToOcr() = _uiState.update { it.copy(phase = ScanPhase.Ocr, error = null) }
 
-    /**
-     * Analyzes a live camera frame for a barcode. The caller owns the frame and must release it
-     * via [onClose] once analysis completes. Emits detected codes through [onDetected].
-     */
     fun analyzeFrame(
         mediaImage: Image,
         rotationDegrees: Int,
