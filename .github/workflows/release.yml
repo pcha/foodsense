@@ -28,7 +28,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - run: ./gradlew :app:testReleaseUnitTest :app:lintRelease
+      - run: ./gradlew :app:testDebugUnitTest :app:lintRelease
 
       - uses: actions/setup-node@v4
         with:
