@@ -1,0 +1,23 @@
+rules_version = '2';
+
+// Everything below users/{userId} is private to that user. Collection matches are explicit:
+// Firestore rules are additive, so a recursive wildcard cannot later be narrowed without
+// rewriting it. Add one match block per new collection.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // The sync repository writes individual documents and queries this collection; both
+      // operations need the same owner authorization.
+      match /products/{productId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}

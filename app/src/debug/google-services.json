@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "663512912663",
+    "project_id": "foodsense-dev",
+    "storage_bucket": "foodsense-dev.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:663512912663:android:d4a72ef5f291f9d80bdd52",
+        "android_client_info": {
+          "package_name": "dev.pcha.foodsense.app.dev"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "663512912663-4j1v76d0ul5bv8onk1jqvsmab4hl9o2u.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "dev.pcha.foodsense.app.dev",
+            "certificate_hash": "c18dce347267799558f7a40de33f07968c768e08"
+          }
+        },
+        {
+          "client_id": "663512912663-kmf9n0gnha2ecamkrjc1pgn10ap7l5pi.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIWgjJ9WlMLTI3Og3ablJQazb-7YTF8w8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "663512912663-kmf9n0gnha2ecamkrjc1pgn10ap7l5pi.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
