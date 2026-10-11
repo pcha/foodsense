@@ -30,6 +30,18 @@ jobs:
 
       - run: ./gradlew :app:testReleaseUnitTest :app:lintRelease
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: firebase/package-lock.json
+
+      - run: npm ci
+        working-directory: firebase
+
+      - run: npm test
+        working-directory: firebase
+
   release:
     needs: test
     runs-on: ubuntu-latest
@@ -102,6 +114,43 @@ jobs:
           APK=app/build/outputs/apk/release/app-release.apk
           test -f "$APK" || { echo "::error::No se generó $APK; el build quedó sin firmar."; exit 1; }
           "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK"
+
+      - name: Check Firestore deployment configuration
+        if: steps.changelog.outputs.skipped == 'false'
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$FIREBASE_PROJECT_ID" || { echo "::error::Falta la variable FIREBASE_PROJECT_ID."; exit 1; }
+          test -n "$FIREBASE_SERVICE_ACCOUNT" || { echo "::error::Falta el secret FIREBASE_SERVICE_ACCOUNT."; exit 1; }
+
+      - name: Set up Node
+        if: steps.changelog.outputs.skipped == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: firebase/package-lock.json
+
+      - name: Install Firebase tooling
+        if: steps.changelog.outputs.skipped == 'false'
+        run: npm ci
+        working-directory: firebase
+
+      - name: Deploy Firestore rules
+        if: steps.changelog.outputs.skipped == 'false'
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          CREDENTIALS_FILE="$RUNNER_TEMP/firebase-service-account.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CREDENTIALS_FILE"
+          GOOGLE_APPLICATION_CREDENTIALS="$CREDENTIALS_FILE" npm run deploy -- --project "$FIREBASE_PROJECT_ID"
+        working-directory: firebase
+
+      - name: Remove Firebase credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/firebase-service-account.json"
 
       # Play Store publishing is intentionally disabled. To enable it, uncomment this block and
       # add GOOGLE_PLAY_SERVICE_ACCOUNT as a repository secret containing the service account JSON.
