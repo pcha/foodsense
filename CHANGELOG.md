@@ -1,3 +1,25 @@
+# [0.9.0](https://github.com/pcha/foodsense/compare/v0.8.0...v0.9.0) (2026-10-12)
+
+
+### Bug Fixes
+
+* **ci:** run available unit tests in release ([4230890](https://github.com/pcha/foodsense/commit/4230890d132aaa8f6eed25e140d13953634d1fbc))
+* harden scanner error handling ([d242e83](https://github.com/pcha/foodsense/commit/d242e835199376986591407aa4186997fc30c2c4))
+* normalize centiliters to milliliters ([e4c75ef](https://github.com/pcha/foodsense/commit/e4c75efc9c7fe0df6aaebedbc3f7d30b08a68849))
+* **sync:** merge same-named products instead of dropping one ([63141fd](https://github.com/pcha/foodsense/commit/63141fd67fe8af893e89f502be804722030155a7))
+* validate release google services package ([077f1bd](https://github.com/pcha/foodsense/commit/077f1bd3795400475af4bbaeb3536df9c8f7d61d))
+
+
+### Features
+
+* **android:** add separate development launcher icon ([0b49547](https://github.com/pcha/foodsense/commit/0b4954742e959bbb90cdeec8b5d2a0ab13075e73))
+* **auth:** expose a domain User and move onboarding to DataStore ([f7110f9](https://github.com/pcha/foodsense/commit/f7110f9d6178386d87a704ca888d235a8d9d1409))
+* **i18n:** standardise on an English default with a Spanish translation ([513c52d](https://github.com/pcha/foodsense/commit/513c52ddadcacc371db21fef7673efd3d8bc98dc))
+* rename package to dev.pcha, add Firebase auth and Firestore sync ([260ff1e](https://github.com/pcha/foodsense/commit/260ff1e231745e89cf2f2fc8ab6a06fc2b86e774))
+* **sync:** reconcile periodically with a sync worker ([4b4901d](https://github.com/pcha/foodsense/commit/4b4901da631068697ed56021b673b2c31f2a2ee5))
+
+
+
 # [0.8.0](https://github.com/pcha/foodsense/compare/v0.7.1...v0.8.0) (2026-05-17)
 
 
