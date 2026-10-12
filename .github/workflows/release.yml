@@ -20,6 +20,28 @@ jobs:
           fi
           mkdir -p app/src/release
           echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/release/google-services.json
+          python3 - <<'PY'
+          import json
+          import sys
+
+          expected_package = "dev.pcha.foodsense.app"
+          with open("app/src/release/google-services.json", encoding="utf-8") as google_services:
+              config = json.load(google_services)
+          package_names = {
+              client.get("client_info", {})
+              .get("android_client_info", {})
+              .get("package_name")
+              for client in config.get("client", [])
+          }
+          if expected_package not in package_names:
+              print(
+                  f"::error::GOOGLE_SERVICES_JSON no contiene el paquete de release {expected_package}. "
+                  "Descarga el google-services.json de la app Android de Firebase con ese package name "
+                  "y actualiza el secret en base64.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
 
       - uses: actions/setup-java@v4
         with:
@@ -78,6 +100,28 @@ jobs:
         run: |
           mkdir -p app/src/release
           echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/release/google-services.json
+          python3 - <<'PY'
+          import json
+          import sys
+
+          expected_package = "dev.pcha.foodsense.app"
+          with open("app/src/release/google-services.json", encoding="utf-8") as google_services:
+              config = json.load(google_services)
+          package_names = {
+              client.get("client_info", {})
+              .get("android_client_info", {})
+              .get("package_name")
+              for client in config.get("client", [])
+          }
+          if expected_package not in package_names:
+              print(
+                  f"::error::GOOGLE_SERVICES_JSON no contiene el paquete de release {expected_package}. "
+                  "Descarga el google-services.json de la app Android de Firebase con ese package name "
+                  "y actualiza el secret en base64.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
 
       - name: Check signing secrets
         if: steps.changelog.outputs.skipped == 'false'
