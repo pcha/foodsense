@@ -1,3 +1,7 @@
+## [0.9.8](https://github.com/pcha/foodsense/compare/v0.9.7...v0.9.8) (2026-10-13)
+
+
+
 ## [0.9.7](https://github.com/pcha/foodsense/compare/v0.9.6...v0.9.7) (2026-10-13)
 
 
