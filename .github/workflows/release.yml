@@ -190,7 +190,7 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           CREDENTIALS_FILE="$RUNNER_TEMP/firebase-service-account.json"
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CREDENTIALS_FILE"
+          echo "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > "$CREDENTIALS_FILE"
           GOOGLE_APPLICATION_CREDENTIALS="$CREDENTIALS_FILE" npm run deploy -- --project "$FIREBASE_PROJECT_ID"
         working-directory: firebase
 
