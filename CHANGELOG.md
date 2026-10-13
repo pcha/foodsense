@@ -1,3 +1,12 @@
+## [0.9.2](https://github.com/pcha/foodsense/compare/v0.9.1...v0.9.2) (2026-10-13)
+
+
+### Bug Fixes
+
+* locate apksigner for release verification ([59d7ab7](https://github.com/pcha/foodsense/commit/59d7ab72285edc4117defafa27bb15404e1d66d4))
+
+
+
 ## [0.9.1](https://github.com/pcha/foodsense/compare/v0.9.0...v0.9.1) (2026-10-13)
 
 
