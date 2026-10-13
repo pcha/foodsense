@@ -157,7 +157,9 @@ jobs:
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
           test -f "$APK" || { echo "::error::No se generó $APK; el build quedó sin firmar."; exit 1; }
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER" || { echo "::error::No se encontró apksigner en $ANDROID_HOME/build-tools."; exit 1; }
+          "$APKSIGNER" verify --print-certs "$APK"
 
       - name: Check Firestore deployment configuration
         if: steps.changelog.outputs.skipped == 'false'
