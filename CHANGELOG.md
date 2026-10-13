@@ -1,3 +1,12 @@
+## [0.9.10](https://github.com/pcha/foodsense/compare/v0.9.9...v0.9.10) (2026-10-13)
+
+
+### Bug Fixes
+
+* decode firebase service account from base64 ([fb09336](https://github.com/pcha/foodsense/commit/fb0933666f0fe1cb29300992bddc1986abed0412))
+
+
+
 ## [0.9.9](https://github.com/pcha/foodsense/compare/v0.9.8...v0.9.9) (2026-10-13)
 
 
