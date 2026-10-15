@@ -165,10 +165,8 @@ jobs:
         if: steps.changelog.outputs.skipped == 'false'
         env:
           FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           test -n "$FIREBASE_PROJECT_ID" || { echo "::error::Falta la variable FIREBASE_PROJECT_ID."; exit 1; }
-          test -n "$FIREBASE_SERVICE_ACCOUNT" || { echo "::error::Falta el secret FIREBASE_SERVICE_ACCOUNT."; exit 1; }
 
       - name: Set up Node
         if: steps.changelog.outputs.skipped == 'false'
@@ -182,21 +180,6 @@ jobs:
         if: steps.changelog.outputs.skipped == 'false'
         run: npm ci
         working-directory: firebase
-
-      - name: Deploy Firestore rules
-        if: steps.changelog.outputs.skipped == 'false'
-        env:
-          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: |
-          CREDENTIALS_FILE="$RUNNER_TEMP/firebase-service-account.json"
-          echo "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > "$CREDENTIALS_FILE"
-          GOOGLE_APPLICATION_CREDENTIALS="$CREDENTIALS_FILE" npm run deploy -- --project "$FIREBASE_PROJECT_ID"
-        working-directory: firebase
-
-      - name: Remove Firebase credentials
-        if: always()
-        run: rm -f "$RUNNER_TEMP/firebase-service-account.json"
 
       # Play Store publishing is intentionally disabled. To enable it, uncomment this block and
       # add GOOGLE_PLAY_SERVICE_ACCOUNT as a repository secret containing the service account JSON.
@@ -236,3 +219,42 @@ jobs:
           name: ${{ steps.changelog.outputs.tag }}
           body: ${{ steps.changelog.outputs.clean_changelog }}
           files: app/build/outputs/apk/release/app-release.apk
+
+  deploy-firestore:
+    name: Deploy Firestore rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Firestore deployment configuration
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$FIREBASE_PROJECT_ID" || { echo "::error::Falta la variable FIREBASE_PROJECT_ID."; exit 1; }
+          test -n "$FIREBASE_SERVICE_ACCOUNT" || { echo "::error::Falta el secret FIREBASE_SERVICE_ACCOUNT."; exit 1; }
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: firebase/package-lock.json
+
+      - name: Install Firebase tooling
+        run: npm ci
+        working-directory: firebase
+
+      - name: Deploy Firestore rules
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          CREDENTIALS_FILE="$RUNNER_TEMP/firebase-service-account.json"
+          echo "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > "$CREDENTIALS_FILE"
+          GOOGLE_APPLICATION_CREDENTIALS="$CREDENTIALS_FILE" npm run deploy -- --project "$FIREBASE_PROJECT_ID"
+        working-directory: firebase
+
+      - name: Remove Firebase credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/firebase-service-account.json"
