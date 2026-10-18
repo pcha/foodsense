@@ -138,16 +138,22 @@ interface ItemDao {
      * Replaces every item of a product. Identity is keyed by [ItemEntity.serverId], so an item that
      * still exists on the remote keeps its [ItemEntity.entityId] and its known revision instead of
      * getting a new one on every reconciliation. Only genuinely new items receive a new identity.
+     *
+     * Blank or repeated remote ids must not hand the same identity to two rows: `entityId` has a unique
+     * index, so the first row wins and any repeat falls back to a fresh identity.
      */
     @Transaction
     suspend fun replaceItems(productId: Int, items: List<ItemEntity>) {
         val existing = getItemsByProduct(productId)
-        val previousByServerId = existing.mapNotNull { item -> item.serverId?.let { it to item } }.toMap()
+        val previousByServerId = existing
+            .mapNotNull { item -> item.serverId?.takeIf { it.isNotBlank() }?.let { it to item } }
+            .toMap()
         existing.forEach { deleteItem(it.uid) }
+        val claimed = mutableSetOf<String>()
         items.forEach { item ->
-            val previous = item.serverId?.let(previousByServerId::get)
+            val previous = item.serverId?.takeIf { it.isNotBlank() }?.let(previousByServerId::get)
             insertItem(
-                if (previous == null) item
+                if (previous == null || !claimed.add(previous.entityId)) item
                 else item.copy(entityId = previous.entityId, revision = previous.revision)
             )
         }

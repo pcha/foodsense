@@ -81,4 +81,36 @@ class EntityIdentityTest {
 
         assertEquals(2, db.itemDao().getItemsByProduct(productId).map { it.entityId }.distinct().size)
     }
+
+    @Test
+    fun replaceItems_repeatedServerId_keepsOneIdentityWithoutColliding() = runTest {
+        val productId = db.productDao().insertProduct(ProductEntity("Milk")).toInt()
+        db.itemDao().insertItem(ItemEntity(productId, 1f, null, null, LocalDate.now(), "dup", revision = 2L))
+
+        db.itemDao().replaceItems(productId, listOf(
+            ItemEntity(productId, 1f, null, null, LocalDate.now(), "dup"),
+            ItemEntity(productId, 3f, null, null, LocalDate.now(), "dup"),
+        ))
+
+        val after = db.itemDao().getItemsByProduct(productId)
+        assertEquals(2, after.size)
+        assertEquals(2, after.map { it.entityId }.distinct().size)
+        assertEquals(1, after.count { it.revision == 2L })
+    }
+
+    @Test
+    fun replaceItems_blankServerId_neverReusesAnIdentity() = runTest {
+        val productId = db.productDao().insertProduct(ProductEntity("Milk")).toInt()
+        db.itemDao().insertItem(ItemEntity(productId, 1f, null, null, LocalDate.now(), ""))
+
+        db.itemDao().replaceItems(productId, listOf(
+            ItemEntity(productId, 1f, null, null, LocalDate.now(), ""),
+            ItemEntity(productId, 2f, null, null, LocalDate.now(), ""),
+        ))
+
+        val after = db.itemDao().getItemsByProduct(productId)
+        assertEquals(2, after.size)
+        assertEquals(2, after.map { it.entityId }.distinct().size)
+        assertTrue(after.all { it.revision == 0L })
+    }
 }
