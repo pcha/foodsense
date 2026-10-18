@@ -109,7 +109,23 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
-@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class, SyncOutboxEntry::class], version = 8)
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Added with a temporary default so the ALTER works on existing rows; Room ignores a
+        // database-side default when the entity declares none. Every row is then given its own
+        // identity, so the default is never actually read.
+        db.execSQL("ALTER TABLE product ADD COLUMN entityId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE product ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE item ADD COLUMN entityId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE item ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE product SET entityId = lower(hex(randomblob(16)))")
+        db.execSQL("UPDATE item SET entityId = lower(hex(randomblob(16)))")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_product_entityId ON product (entityId)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_item_entityId ON item (entityId)")
+    }
+}
+
+@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class, SyncOutboxEntry::class], version = 9)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao

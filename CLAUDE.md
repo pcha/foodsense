@@ -19,7 +19,7 @@ Before implementing non-trivial Android changes, review the project skills if th
 - **Min SDK:** 26
 - **Target SDK:** 36
 - **Module structure:** single Android module, `:app`
-- **Room schema:** version 8
+- **Room schema:** version 9
 
 ## Tech stack
 
@@ -151,6 +151,10 @@ Recent Room migration context:
 - v6 added `serverId` to `product` and `item` for sync.
 - v7 added `updatedAt` to `product` for last-write-wins conflict resolution.
 - v8 adds the account-scoped `sync_outbox` table without rewriting existing inventory.
+- v9 adds `entityId` and `revision` to `product` and `item`. `entityId` is the stable V2 document id:
+  generated once per row, unrelated to legacy `serverId`, and enforced unique. Existing rows get a
+  random identity and `revision = 0` ("not created on the V2 server yet"). `ItemDao.replaceItems`
+  preserves the identity of items whose `serverId` survives reconciliation instead of resampling it.
 
 ## Data layer: offline-first Firestore sync
 
@@ -171,9 +175,9 @@ The first rollout stage provides:
 - Account-scoped FIFO ordering, attempts, transient-error metadata, and a blocked-head state. Ordering
   uses the database sequence, not a device timestamp. Payloads retain base revisions and tombstones.
 - No outbox worker is scheduled and application mutations do not enqueue intents yet. The isolated
-  remote protocol and the drain engine below exist, but local entity revision persistence, conflict
-  presentation/resolution, guest/account ownership, and a legacy-client cutover/migration are still
-  required before activation.
+  remote protocol, the drain engine and the local entity identity/revision columns below exist, but
+  advancing local revisions from server receipts, conflict presentation/resolution, guest/account
+  ownership, and a legacy-client cutover/migration are still required before activation.
 
 Tests use real Room to check intermediate inventory emissions, rollback on failure/cancellation,
 duplicate operation IDs, account isolation, and persistence after reopening the database.
@@ -234,8 +238,20 @@ Failure policy uses the protocol taxonomy, not Firestore types:
 The attempt counter increments before the network call, so a crash mid-flight is charged. A crash
 between a successful `apply` and the acknowledgement is safe: replaying the same operation ID returns
 the stored receipt and the intent is simply sent again. The drain serializes itself with an in-process
-mutex; the future worker must also use unique work per account. Local revisions are still not persisted
-and conflicts are not surfaced to the UI — those, plus the worker, reconciliation and cutover, remain.
+mutex; the future worker must also use unique work per account.
+
+### Local entity identity and revisions
+
+`product` and `item` carry `entityId` (stable V2 document id, unique index) and `revision` (last
+revision the device knows for that entity; `0` means the V2 server does not have it yet). Neither is
+derived from a device clock or from `serverId`. `LocalInventoryChanges` is the pure, tested bridge from
+a Room row to an `InventoryChange`, and it uses the row's stored revision as `baseRevision`. It is not
+called by any mutation yet.
+
+Nothing advances `revision` after a successful remote apply: that, plus pulling V2 state back into Room
+(reconciliation) and surfacing unresolved conflicts, is what remains before the worker can be scheduled
+and the legacy cutover designed. Note the protocol requires `quantity > 0`, which the product editor
+already enforces; do not let a future edit path persist zero.
 
 ```text
 data/sync/
@@ -248,6 +264,7 @@ data/sync/
     ├── InventoryOperationProtocol.kt    # entity keys, receipts, failure taxonomy, conflict policy
     ├── InventoryOutbox.kt               # atomic enqueue with the local mutation
     ├── InventoryOutboxDrain.kt          # FIFO drain, retry/block policy
+    ├── LocalInventoryChanges.kt         # Room row -> protocol change (identity + revision)
     └── FirebaseInventoryOperationRemote.kt
 ```
 

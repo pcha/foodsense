@@ -4,6 +4,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,12 +39,48 @@ class MigrationTest {
     }
 
     @Test
-    fun migrateAll_2To8_succeeds() {
+    fun migrateAll_2To9_succeeds() {
         helper.createDatabase(TEST_DB, 2).close()
         helper.runMigrationsAndValidate(
-            TEST_DB, 8, true,
-            MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+            TEST_DB, 9, true,
+            MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
         ).close()
+    }
+
+    @Test
+    fun migrate8To9_backfillsEntityIdentityAndRevisionForExistingRows() {
+        helper.createDatabase(TEST_DB, 8).apply {
+            execSQL("INSERT INTO product (uid, name, serverId, updatedAt) VALUES (1, 'Milk', 'doc-1', 42)")
+            execSQL("INSERT INTO product (uid, name, serverId, updatedAt) VALUES (2, 'Bread', NULL, 0)")
+            execSQL("INSERT INTO item (uid, productId, quantity, unit, expirationDate, addedAt, serverId) VALUES (1, 1, 6, NULL, NULL, 20000, 'item-1')")
+            execSQL("INSERT INTO item (uid, productId, quantity, unit, expirationDate, addedAt, serverId) VALUES (2, 1, 2, NULL, NULL, 20000, NULL)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 9, true, MIGRATION_8_9)
+
+        val productIdentities = mutableListOf<String>()
+        db.query("SELECT entityId, revision FROM product ORDER BY uid").use { cursor ->
+            while (cursor.moveToNext()) {
+                productIdentities += cursor.getString(cursor.getColumnIndexOrThrow("entityId"))
+                assertEquals(0L, cursor.getLong(cursor.getColumnIndexOrThrow("revision")))
+            }
+        }
+        assertEquals(2, productIdentities.size)
+        assertEquals(2, productIdentities.distinct().size)
+        assertTrue(productIdentities.all { it.isNotBlank() })
+
+        val itemIdentities = mutableListOf<String>()
+        db.query("SELECT entityId, revision FROM item ORDER BY uid").use { cursor ->
+            while (cursor.moveToNext()) {
+                itemIdentities += cursor.getString(cursor.getColumnIndexOrThrow("entityId"))
+                assertEquals(0L, cursor.getLong(cursor.getColumnIndexOrThrow("revision")))
+            }
+        }
+        assertEquals(2, itemIdentities.size)
+        assertEquals(2, itemIdentities.distinct().size)
+        assertTrue(itemIdentities.all { it.isNotBlank() })
+        db.close()
     }
 
     @Test
