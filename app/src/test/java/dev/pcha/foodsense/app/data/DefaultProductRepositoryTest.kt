@@ -784,6 +784,18 @@ private class FakeItemDao : ItemDao {
     override suspend fun getItemsByProduct(productId: Int): List<ItemEntity> =
         _items.value.filter { it.productId == productId }
 
+    override suspend fun findItemByEntityId(entityId: String): ItemEntity? =
+        _items.value.find { it.entityId == entityId }
+
+    override suspend fun advanceRevision(uid: Int, revision: Long): Int {
+        val current = _items.value.find { it.uid == uid } ?: return 0
+        if (current.revision >= revision) return 0
+        _items.value = _items.value.map {
+            if (it.uid == uid) it.copy(revision = revision).also { c -> c.uid = uid } else it
+        }
+        return 1
+    }
+
     fun deleteItemsByProduct(productId: Int) {
         _items.value = _items.value.filter { it.productId != productId }
     }
@@ -844,6 +856,18 @@ private class FakeProductDao(private val itemDao: FakeItemDao) : ProductDao {
 
     override suspend fun findProductByServerId(serverId: String): ProductEntity? =
         _products.value.find { it.serverId == serverId }
+
+    override suspend fun findProductByEntityId(entityId: String): ProductEntity? =
+        _products.value.find { it.entityId == entityId }
+
+    override suspend fun advanceRevision(uid: Int, revision: Long): Int {
+        val current = _products.value.find { it.uid == uid } ?: return 0
+        if (current.revision >= revision) return 0
+        _products.value = _products.value.map {
+            if (it.uid == uid) it.copy(revision = revision).also { c -> c.uid = uid } else it
+        }
+        return 1
+    }
 
     override suspend fun deleteAllProducts() {
         _products.value = emptyList()

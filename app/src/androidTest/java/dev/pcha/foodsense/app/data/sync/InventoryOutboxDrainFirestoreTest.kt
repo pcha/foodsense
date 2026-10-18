@@ -5,12 +5,15 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.firebase.firestore.Source
 import dev.pcha.foodsense.app.data.local.database.AppDatabase
+import dev.pcha.foodsense.app.data.local.database.ItemEntity
+import dev.pcha.foodsense.app.data.local.database.ProductEntity
 import dev.pcha.foodsense.app.data.sync.outbox.FirebaseInventoryOperationRemote
 import dev.pcha.foodsense.app.data.sync.outbox.InventoryChange
 import dev.pcha.foodsense.app.data.sync.outbox.InventoryEntityType
 import dev.pcha.foodsense.app.data.sync.outbox.InventoryOperation
 import dev.pcha.foodsense.app.data.sync.outbox.InventoryOutbox
 import dev.pcha.foodsense.app.data.sync.outbox.InventoryOutboxDrain
+import dev.pcha.foodsense.app.data.sync.outbox.LocalInventoryChanges
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.json.JsonNull
@@ -20,6 +23,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.LocalDate
 
 /** End-to-end: Room outbox, the drain engine and the real Firestore adapter against the emulator. */
 @RunWith(AndroidJUnit4::class)
@@ -36,7 +40,7 @@ class InventoryOutboxDrainFirestoreTest {
             InstrumentationRegistry.getInstrumentation().targetContext, AppDatabase::class.java,
         ).build()
         outbox = InventoryOutbox(db)
-        drain = InventoryOutboxDrain(db, FirebaseInventoryOperationRemote(session.firestore))
+        drain = InventoryOutboxDrain(outbox, FirebaseInventoryOperationRemote(session.firestore))
     }
 
     @After
@@ -74,6 +78,40 @@ class InventoryOutboxDrainFirestoreTest {
         assertEquals("Pears", stored.getString("name"))
         assertEquals(2L, stored.getLong("revision"))
         assertEquals(15, collection(userId, FirebaseInventoryOperationRemote.ITEMS).get(Source.SERVER).await().size())
+    }
+
+    @Test
+    fun drain_successfulApply_advancesLocalRevisionsFromTheReceipt() = firebaseEmulatorTest {
+        val userId = session.userId
+        val productUid = db.productDao().insertProduct(ProductEntity(name = "Apples", entityId = "p1")).toInt()
+        db.itemDao().insertItem(ItemEntity(productUid, 1f, null, null, LocalDate.now(), entityId = "i1"))
+        val created = db.productDao().findProductById(productUid)!!
+        val item = db.itemDao().getItemsByProduct(productUid).single()
+        outbox.enqueue(userId, InventoryOperation("create", listOf(
+            LocalInventoryChanges.product(created),
+            LocalInventoryChanges.item(item, created.entityId),
+        )), 1L) {}
+
+        drain.drain(userId)
+
+        assertEquals(1L, db.productDao().findProductById(productUid)!!.revision)
+        assertEquals(1L, db.itemDao().getItemsByProduct(productUid).single().revision)
+
+        // The next edit is built from the row, so it already carries the receipt's revision as its base.
+        val renamed = db.productDao().findProductById(productUid)!!.copy(name = "Pears")
+        db.productDao().updateProduct(renamed)
+        val change = LocalInventoryChanges.product(renamed)
+        assertEquals(1L, change.baseRevision)
+        outbox.enqueue(userId, InventoryOperation("rename", listOf(change)), 2L) {}
+
+        val report = drain.drain(userId)
+
+        assertEquals(listOf("rename"), report.acknowledged)
+        assertEquals(2L, db.productDao().findProductById(productUid)!!.revision)
+        val stored = collection(userId, FirebaseInventoryOperationRemote.PRODUCTS).document("p1")
+            .get(Source.SERVER).await()
+        assertEquals("Pears", stored.getString("name"))
+        assertEquals(2L, stored.getLong("revision"))
     }
 
     @Test

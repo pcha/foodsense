@@ -176,8 +176,10 @@ The first rollout stage provides:
   uses the database sequence, not a device timestamp. Payloads retain base revisions and tombstones.
 - No outbox worker is scheduled and application mutations do not enqueue intents yet. The isolated
   remote protocol, the drain engine and the local entity identity/revision columns below exist, but
-  advancing local revisions from server receipts, conflict presentation/resolution, guest/account
-  ownership, and a legacy-client cutover/migration are still required before activation.
+  conflict presentation/resolution, guest/account ownership, and a legacy-client cutover/migration are
+  still required before activation. The cutover is not just a rename: an activated V2 writer and a
+  still-legacy client would be mutually invisible (different collections and different shapes), so the
+  same account would silently hold two divergent inventories. See `plan/foodsense-room-outbox.md`.
 
 Tests use real Room to check intermediate inventory emissions, rollback on failure/cancellation,
 duplicate operation IDs, account isolation, and persistence after reopening the database.
@@ -240,6 +242,13 @@ between a successful `apply` and the acknowledgement is safe: replaying the same
 the stored receipt and the intent is simply sent again. The drain serializes itself with an in-process
 mutex; the future worker must also use unique work per account.
 
+Acknowledgement is not just deleting the row: `InventoryOutbox.acknowledge` applies the receipt's
+effects and removes the intent in one transaction. Every effect the server actually wrote advances its
+entity to the revision the server assigned, so the next intent for that entity uses it as its base.
+Advancement is monotonic (`revision < :revision` in SQL) because a replayed receipt must be a no-op, and
+effects are skipped for rows that no longer exist locally or that the receipt marks deleted: local
+existence is decided by the local mutation, and remote deletions belong to reconciliation.
+
 ### Local entity identity and revisions
 
 `product` and `item` carry `entityId` (stable V2 document id, unique index) and `revision` (last
@@ -248,10 +257,23 @@ derived from a device clock or from `serverId`. `LocalInventoryChanges` is the p
 a Room row to an `InventoryChange`, and it uses the row's stored revision as `baseRevision`. It is not
 called by any mutation yet.
 
-Nothing advances `revision` after a successful remote apply: that, plus pulling V2 state back into Room
-(reconciliation) and surfacing unresolved conflicts, is what remains before the worker can be scheduled
-and the legacy cutover designed. Note the protocol requires `quantity > 0`, which the product editor
-already enforces; do not let a future edit path persist zero.
+Nothing advanced `revision` until the drain learned to apply receipts: now a successful `apply` moves
+each written entity to the revision the server assigned (see the drain section above), which is what
+lets a later edit of the same entity use the new revision as its base instead of colliding. Pulling V2
+state back into Room (reconciliation), surfacing unresolved conflicts, enqueueing from real mutations
+and the legacy cutover are what remain. Note the protocol requires `quantity > 0`, which the product
+editor already enforces; do not let a future edit path persist zero.
+
+Known constraint for the enqueue stage: nothing advances `revision` at mutation time, so two edits of
+the same entity queued before the first one drains would both carry the same base revision and the
+second one would be reported as a conflict by `InventoryOperationProtocol.plan`, which requires an
+exact base for edits. The intended fix is optimistic local revisions - the enqueue path advances the
+row by one and uses the pre-bump value as `baseRevision`, so a local revision means "server revision
+plus pending local writes". FIFO ordering keeps that arithmetic valid, and conflict resolution then
+owns rewinding an inflated revision when a blocked intent is discarded.
+
+That arithmetic has a consequence for reconciliation: a local revision can legitimately be ahead of the
+server while intents are pending, so a pull must not treat "local > remote" as corruption.
 
 ```text
 data/sync/

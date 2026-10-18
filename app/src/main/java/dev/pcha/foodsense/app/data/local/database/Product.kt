@@ -122,6 +122,13 @@ interface ProductDao {
     @Query("SELECT * FROM product WHERE serverId = :serverId LIMIT 1")
     suspend fun findProductByServerId(serverId: String): ProductEntity?
 
+    @Query("SELECT * FROM product WHERE entityId = :entityId LIMIT 1")
+    suspend fun findProductByEntityId(entityId: String): ProductEntity?
+
+    /** Monotonic: a revision the device already knows is never lowered by a newer acknowledgement. */
+    @Query("UPDATE product SET revision = :revision WHERE uid = :uid AND revision < :revision")
+    suspend fun advanceRevision(uid: Int, revision: Long): Int
+
     @Query("SELECT * FROM product WHERE uid = :uid LIMIT 1")
     suspend fun findProductById(uid: Int): ProductEntity?
 
@@ -179,4 +186,11 @@ interface ItemDao {
 
     @Query("SELECT * FROM item WHERE productId = :productId")
     suspend fun getItemsByProduct(productId: Int): List<ItemEntity>
+
+    @Query("SELECT * FROM item WHERE entityId = :entityId LIMIT 1")
+    suspend fun findItemByEntityId(entityId: String): ItemEntity?
+
+    /** Monotonic: a revision the device already knows is never lowered by a newer acknowledgement. */
+    @Query("UPDATE item SET revision = :revision WHERE uid = :uid AND revision < :revision")
+    suspend fun advanceRevision(uid: Int, revision: Long): Int
 }

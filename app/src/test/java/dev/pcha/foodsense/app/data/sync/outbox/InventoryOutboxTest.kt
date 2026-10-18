@@ -146,4 +146,31 @@ class InventoryOutboxTest {
         assertTrue(runCatching { InventoryOperation.decode(operation().encode(), 99) }.isFailure)
         assertTrue(runCatching { operation().copy(changes = operation().changes + operation().changes).encode() }.isFailure)
     }
+
+    @Test
+    fun acknowledge_appliesEffectsAndRemovesTheIntentInOneCommit() = runTest {
+        val productUid = db.productDao().insertProduct(ProductEntity("Milk", entityId = "p1")).toInt()
+        outbox.enqueue("account-a", operation(), 123L) {}
+
+        outbox.acknowledge("account-a", "op-1", listOf(
+            InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 3, deleted = false, written = true),
+        ))
+
+        assertEquals(3L, db.productDao().findProductById(productUid)!!.revision)
+        assertNull(db.syncOutboxDao().head("account-a"))
+    }
+
+    @Test
+    fun acknowledge_unknownIntent_rollsBackItsEffects() = runTest {
+        val productUid = db.productDao().insertProduct(ProductEntity("Milk", entityId = "p1")).toInt()
+
+        val result = runCatching {
+            outbox.acknowledge("account-a", "missing", listOf(
+                InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 3, deleted = false, written = true),
+            ))
+        }
+
+        assertTrue(result.isFailure)
+        assertEquals(0L, db.productDao().findProductById(productUid)!!.revision)
+    }
 }

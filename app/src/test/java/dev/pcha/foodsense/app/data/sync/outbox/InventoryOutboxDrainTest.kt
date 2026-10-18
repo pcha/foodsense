@@ -3,6 +3,8 @@ package dev.pcha.foodsense.app.data.sync.outbox
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.pcha.foodsense.app.data.local.database.AppDatabase
+import dev.pcha.foodsense.app.data.local.database.ItemEntity
+import dev.pcha.foodsense.app.data.local.database.ProductEntity
 import dev.pcha.foodsense.app.data.local.database.SyncOutboxEntry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -14,6 +16,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.time.LocalDate
 
 @RunWith(RobolectricTestRunner::class)
 class InventoryOutboxDrainTest {
@@ -27,7 +30,7 @@ class InventoryOutboxDrainTest {
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), AppDatabase::class.java).build()
         outbox = InventoryOutbox(db)
         remote = RecordingRemote()
-        drain = InventoryOutboxDrain(db, remote)
+        drain = InventoryOutboxDrain(outbox, remote)
     }
 
     @After
@@ -42,6 +45,12 @@ class InventoryOutboxDrainTest {
     }
 
     private suspend fun head(accountId: String) = db.syncOutboxDao().head(accountId)
+
+    private suspend fun insertProduct(name: String = "Milk", entityId: String = "p1"): Int =
+        db.productDao().insertProduct(ProductEntity(name = name, entityId = entityId)).toInt()
+
+    private suspend fun insertItem(productId: Int, entityId: String, quantity: Float = 1f) =
+        db.itemDao().insertItem(ItemEntity(productId, quantity, null, null, LocalDate.now(), entityId = entityId))
 
     @Test
     fun drain_withoutPendingOperations_sendsNothing() = runTest {
@@ -208,8 +217,133 @@ class InventoryOutboxDrainTest {
         assertEquals(1, db.syncOutboxDao().observe("account-b").first().size)
     }
 
+    @Test
+    fun drain_acknowledgedEffects_advanceLocalRevisions() = runTest {
+        val productUid = insertProduct()
+        insertItem(productUid, "i1")
+        remote.behavior = ::appliedReceipt
+        val product = db.productDao().findProductById(productUid)!!
+        val item = db.itemDao().getItemsByProduct(productUid).single()
+        outbox.enqueue("account-a", InventoryOperation("create", listOf(
+            LocalInventoryChanges.product(product),
+            LocalInventoryChanges.item(item, product.entityId),
+        )), 1L) {}
+
+        val report = drain.drain("account-a")
+
+        assertEquals(listOf("create"), report.acknowledged)
+        assertEquals(1L, db.productDao().findProductById(productUid)!!.revision)
+        assertEquals(1L, db.itemDao().getItemsByProduct(productUid).single().revision)
+        assertNull(head("account-a"))
+    }
+
+    @Test
+    fun drain_secondEditCarriesTheRevisionFromTheFirstReceipt() = runTest {
+        val productUid = insertProduct()
+        val created = db.productDao().findProductById(productUid)!!
+        remote.behavior = ::appliedReceipt
+        outbox.enqueue("account-a", InventoryOperation("create", listOf(LocalInventoryChanges.product(created))), 1L) {}
+        drain.drain("account-a")
+
+        val renamed = db.productDao().findProductById(productUid)!!.copy(name = "Pears")
+        db.productDao().updateProduct(renamed)
+        val change = LocalInventoryChanges.product(renamed)
+
+        // The receipt's revision is what makes this edit a valid compare-and-set instead of a conflict.
+        assertEquals(1L, change.baseRevision)
+        val recorded = mutableListOf<InventoryOperation>()
+        remote.behavior = { operation -> recorded += operation; appliedReceipt(operation) }
+        outbox.enqueue("account-a", InventoryOperation("rename", listOf(change)), 2L) {}
+
+        drain.drain("account-a")
+
+        assertEquals(1L, recorded.single().changes.single().baseRevision)
+        assertEquals(2L, db.productDao().findProductById(productUid)!!.revision)
+    }
+
+    @Test
+    fun drain_olderAcknowledgedRevision_neverMovesRevisionBackwards() = runTest {
+        val productUid = insertProduct()
+        db.productDao().advanceRevision(productUid, 5L)
+        remote.behavior = {
+            InventoryOperationReceipt(it.id, "fingerprint", listOf(
+                InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 2, deleted = false, written = true),
+            ))
+        }
+
+        enqueue("account-a", "first")
+        drain.drain("account-a")
+
+        assertEquals(5L, db.productDao().findProductById(productUid)!!.revision)
+        assertNull(head("account-a"))
+    }
+
+    @Test
+    fun drain_effectForAnEntityThatIsGoneLocally_isStillAcknowledged() = runTest {
+        remote.behavior = {
+            InventoryOperationReceipt(it.id, "fingerprint", listOf(
+                InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 1, deleted = false, written = true),
+                InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.ITEM, "i1"), 1, deleted = false, written = true),
+            ))
+        }
+
+        enqueue("account-a", "first")
+        val report = drain.drain("account-a")
+
+        assertEquals(listOf("first"), report.acknowledged)
+        assertNull(head("account-a"))
+    }
+
+    @Test
+    fun drain_deletionEffect_leavesLocalRowsAlone() = runTest {
+        val productUid = insertProduct()
+        remote.behavior = {
+            InventoryOperationReceipt(it.id, "fingerprint", listOf(
+                InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 1, deleted = true, written = true),
+            ))
+        }
+
+        enqueue("account-a", "first")
+        drain.drain("account-a")
+
+        // Local existence is decided by the local mutation, not by acknowledging its own intent.
+        val product = db.productDao().findProductById(productUid)
+        assertNotNull(product)
+        assertEquals(0L, product!!.revision)
+    }
+
+    @Test
+    fun drain_revisionConflict_leavesLocalRevisionsUntouched() = runTest {
+        val productUid = insertProduct()
+        remote.behavior = {
+            throw InventoryRevisionConflict(
+                InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 0, 1, InventoryConflictReason.REVISION_MISMATCH,
+            )
+        }
+
+        enqueue("account-a", "first")
+        val report = drain.drain("account-a")
+
+        assertEquals(BlockedOperation("first", InventoryOutboxDrain.CODE_REVISION_CONFLICT), report.blocked)
+        assertEquals(0L, db.productDao().findProductById(productUid)!!.revision)
+    }
+
     private fun recordingReceipt(operation: InventoryOperation) =
         InventoryOperationReceipt(operation.id, "fingerprint", emptyList())
+
+    /** Mirrors `InventoryOperationProtocol.plan` on the happy path: every change is written at base + 1. */
+    private fun appliedReceipt(operation: InventoryOperation) = InventoryOperationReceipt(
+        operation.id,
+        "fingerprint",
+        operation.changes.map { change ->
+            InventoryOperationEffect(
+                InventoryEntityKey(change.type, change.entityId),
+                revision = change.baseRevision + 1,
+                deleted = change.deleted,
+                written = true,
+            )
+        },
+    )
 
     private class RecordingRemote(
         var behavior: (InventoryOperation) -> InventoryOperationReceipt = {
