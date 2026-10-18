@@ -4,6 +4,12 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
+/**
+ * Random operation id, generated once per intent. It is the deduplication key stored with the server
+ * receipt, so a retry must reuse it and a different payload must never reuse it.
+ */
+fun newOperationId(): String = java.util.UUID.randomUUID().toString()
+
 /** An immutable intent, not a snapshot of the entire inventory. Wire format is versioned separately. */
 @Serializable
 data class InventoryOperation(

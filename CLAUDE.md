@@ -166,18 +166,24 @@ The versioned outbox protocol is **not active yet**. The app still uses the lega
 Firestore sender described below. Do not wire `InventoryOutbox` to that sender: it cannot enforce
 operation deduplication, entity revisions, or deletion tombstones.
 
-The first rollout stage provides:
+The rollout stages so far provide:
 
 - `LocalTransactions` / `RoomLocalTransactions`: one Room transaction per batch add, update, or delete.
 - `ProductRepository.updateItems` and `deleteItems`: ViewModels submit one action, not per-item writes.
 - One legacy remote write per affected product for a batch edit/delete.
-- `InventoryOutbox.enqueue`: commits a local mutation and an immutable, versioned operation together.
+- `InventoryOutbox.enqueue` / `recordCommitted`: commits a local mutation and an immutable, versioned
+  operation together, and reserves the revisions that operation will produce.
+- `LocalInventoryOperations`: builds that operation from the rows the mutation just wrote.
+- The real mutations (`addBatch`, `updateProduct`, `updateItems`, `deleteItems`) call
+  `InventoryIntentRecorder`, but Hilt binds `DisabledInventoryIntents`, so no device queues intents yet:
+  nothing drains the outbox and the legacy sender is still what syncs accounts. `deleteProduct`
+  deliberately queues nothing, because the server keeps a product's items as separate documents - that is
+  the pending product-deletion stage.
 - Account-scoped FIFO ordering, attempts, transient-error metadata, and a blocked-head state. Ordering
   uses the database sequence, not a device timestamp. Payloads retain base revisions and tombstones.
-- No outbox worker is scheduled and application mutations do not enqueue intents yet. The isolated
-  remote protocol, the drain engine and the local entity identity/revision columns below exist, but
-  conflict presentation/resolution, guest/account ownership, and a legacy-client cutover/migration are
-  still required before activation. The cutover is not just a rename: an activated V2 writer and a
+- Activating the V2 writer is binding `OutboxInventoryIntents` plus scheduling the durable worker.
+  Conflict presentation/resolution, guest/account ownership, reconciliation (pull) and a legacy-client
+  cutover/migration are still required. The cutover is not just a rename: an activated V2 writer and a
   still-legacy client would be mutually invisible (different collections and different shapes), so the
   same account would silently hold two divergent inventories. See `plan/foodsense-room-outbox.md`.
 
@@ -254,26 +260,34 @@ existence is decided by the local mutation, and remote deletions belong to recon
 `product` and `item` carry `entityId` (stable V2 document id, unique index) and `revision` (last
 revision the device knows for that entity; `0` means the V2 server does not have it yet). Neither is
 derived from a device clock or from `serverId`. `LocalInventoryChanges` is the pure, tested bridge from
-a Room row to an `InventoryChange`, and it uses the row's stored revision as `baseRevision`. It is not
-called by any mutation yet.
+a Room row to an `InventoryChange`; `LocalInventoryOperations` composes those changes into the single
+intent that describes a whole local action, including the product document when the server has never
+seen it.
 
-Nothing advanced `revision` until the drain learned to apply receipts: now a successful `apply` moves
-each written entity to the revision the server assigned (see the drain section above), which is what
-lets a later edit of the same entity use the new revision as its base instead of colliding. Pulling V2
-state back into Room (reconciliation), surfacing unresolved conflicts, enqueueing from real mutations
-and the legacy cutover are what remain. Note the protocol requires `quantity > 0`, which the product
-editor already enforces; do not let a future edit path persist zero.
+### Optimistic local revisions at enqueue
 
-Known constraint for the enqueue stage: nothing advances `revision` at mutation time, so two edits of
-the same entity queued before the first one drains would both carry the same base revision and the
-second one would be reported as a conflict by `InventoryOperationProtocol.plan`, which requires an
-exact base for edits. The intended fix is optimistic local revisions - the enqueue path advances the
-row by one and uses the pre-bump value as `baseRevision`, so a local revision means "server revision
-plus pending local writes". FIFO ordering keeps that arithmetic valid, and conflict resolution then
-owns rewinding an inflated revision when a blocked intent is discarded.
+Revisions advance from two directions. A receipt moves every written entity to the revision the server
+assigned (see the drain section). Enqueueing reserves the revision its operation will produce:
+`InventoryOutbox.enqueue` / `recordCommitted` advance each written entity to `baseRevision + 1` in the
+same transaction as the local mutation, so a stored revision means "server revision plus pending local
+writes". Two edits of the same entity queued before the first one drains therefore carry 0 and 1 instead
+of 0 and 0: `InventoryOperationProtocol.plan` requires an exact base for edits, and the second intent now
+applies instead of being reported as a conflict. FIFO ordering is what keeps that arithmetic valid.
 
-That arithmetic has a consequence for reconciliation: a local revision can legitimately be ahead of the
-server while intents are pending, so a pull must not treat "local > remote" as corruption.
+Properties to preserve:
+
+- `recordCommitted` must run **after** the local mutation in its transaction: Room's `@Update` writes the
+  row's own revision column, so a bump made earlier is overwritten with the value it replaced.
+- Advancements are monotonic, like a receipt's, so a replayed receipt stays a no-op. Deletions reserve
+  nothing: they leave no local row, and the server only tombstones the entity.
+- An action that cannot travel as one intent (more than 100 changes) is left unqueued with a log line,
+  never split, so another device cannot observe half of one user action. The local commit is unaffected
+  and the legacy sender still carries it.
+- Reconciliation must tolerate a local revision ahead of the server while intents are pending; "local >
+  remote" is not corruption. Conflict resolution owns rewinding an inflated revision when a blocked
+  intent is discarded. Pulling V2 state back into Room, surfacing conflicts, the durable worker and the
+  legacy cutover are what remain. Note the protocol requires `quantity > 0`, which the product editor
+  already enforces; do not let a future edit path persist zero.
 
 ```text
 data/sync/
@@ -284,9 +298,11 @@ data/sync/
 └── outbox/
     ├── InventoryOperation.kt            # versioned intent + wire payload
     ├── InventoryOperationProtocol.kt    # entity keys, receipts, failure taxonomy, conflict policy
-    ├── InventoryOutbox.kt               # atomic enqueue with the local mutation
+    ├── InventoryOutbox.kt               # atomic enqueue/record with the local mutation
     ├── InventoryOutboxDrain.kt          # FIFO drain, retry/block policy
+    ├── InventoryIntentRecorder.kt       # mutation -> intent seam, dark binding by default
     ├── LocalInventoryChanges.kt         # Room row -> protocol change (identity + revision)
+    ├── LocalInventoryOperations.kt      # one local action -> one intent (revision arithmetic)
     └── FirebaseInventoryOperationRemote.kt
 ```
 

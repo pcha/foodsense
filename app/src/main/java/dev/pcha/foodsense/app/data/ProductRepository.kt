@@ -13,6 +13,9 @@ import dev.pcha.foodsense.app.data.local.database.LocalTransactions
 import dev.pcha.foodsense.app.data.sync.FirestoreItem
 import dev.pcha.foodsense.app.data.sync.FirestoreProduct
 import dev.pcha.foodsense.app.data.sync.FirestoreSyncRepository
+import dev.pcha.foodsense.app.data.sync.outbox.DisabledInventoryIntents
+import dev.pcha.foodsense.app.data.sync.outbox.InventoryIntentRecorder
+import dev.pcha.foodsense.app.data.sync.outbox.LocalInventoryOperations
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,6 +71,8 @@ class DefaultProductRepository @Inject constructor(
     private val syncRepository: FirestoreSyncRepository,
     @param:ApplicationScope private val appScope: CoroutineScope,
     private val localTransactions: LocalTransactions,
+    /** Defaulted to keep every existing construction site explicit; Hilt binds the real policy. */
+    private val intents: InventoryIntentRecorder = DisabledInventoryIntents(),
 ) : ProductRepository {
 
     private val _syncStatus = MutableStateFlow(SyncStatus.Idle)
@@ -130,19 +135,26 @@ class DefaultProductRepository @Inject constructor(
     ) {
         val batchSize = count.coerceAtLeast(1)
         val now = System.currentTimeMillis()
+        val accountId = currentAccountId()
         val productId = localTransactions.run {
             val existing = productDao.findProductByName(name)
-            val id = existing?.uid ?: productDao.insertProduct(ProductEntity(name, updatedAt = now)).toInt()
-            repeat(batchSize) {
-                itemDao.insertItem(ItemEntity(
+            val product = existing ?: ProductEntity(name, updatedAt = now)
+            val id = existing?.uid ?: productDao.insertProduct(product).toInt()
+            // A freshly inserted row only carries its key after Room assigns it.
+            product.uid = id
+            val items = List(batchSize) {
+                ItemEntity(
                     productId = id,
                     quantity = quantity,
                     unit = unit,
                     expirationDate = expirationDate,
                     addedAt = LocalDate.now(),
-                ))
+                )
             }
+            items.forEach { itemDao.insertItem(it) }
             productDao.touchUpdatedAt(id, now)
+            // A product the V2 server has never seen travels with its first items, in one intent.
+            intents.record(accountId, now) { LocalInventoryOperations.itemsChanged(listOf(product), items) }
             id
         }
         syncLog("ADD local productId=$productId name='$name' count=$batchSize itemQuantity=$quantity unit=$unit expirationDate=$expirationDate")
@@ -166,8 +178,13 @@ class DefaultProductRepository @Inject constructor(
 
     override suspend fun updateProduct(productId: Int, name: String) {
         val now = System.currentTimeMillis()
-        val current = productDao.findProductById(productId) ?: return
-        productDao.updateProduct(current.copy(name = name, updatedAt = now).also { it.uid = productId })
+        val accountId = currentAccountId()
+        localTransactions.run {
+            val current = productDao.findProductById(productId) ?: return@run
+            val renamed = current.copy(name = name, updatedAt = now).also { it.uid = productId }
+            productDao.updateProduct(renamed)
+            intents.record(accountId, now) { LocalInventoryOperations.productChanged(renamed) }
+        }
         syncIfAuthenticated { userId ->
             val product = productDao.findProductById(productId) ?: return@syncIfAuthenticated
             if (product.serverId != null) {
@@ -184,17 +201,20 @@ class DefaultProductRepository @Inject constructor(
 
     override suspend fun updateItems(itemIds: List<Int>, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {
         val now = System.currentTimeMillis()
+        val accountId = currentAccountId()
         val affectedProducts = localTransactions.run {
             val current = itemIds.distinct().mapNotNull { itemDao.getItem(it) }
-            current.forEach { item ->
-                itemDao.updateItem(
-                    item.copy(quantity = quantity, unit = unit, expirationDate = expirationDate)
-                        .also { it.uid = item.uid }
-                )
+            val updated = current.map { item ->
+                item.copy(quantity = quantity, unit = unit, expirationDate = expirationDate)
+                    .also { it.uid = item.uid }
             }
-            current.map { it.productId }.distinct().also { ids ->
-                ids.forEach { productDao.touchUpdatedAt(it, now) }
-            }
+            updated.forEach { itemDao.updateItem(it) }
+            val ids = current.map { it.productId }.distinct()
+            ids.forEach { productDao.touchUpdatedAt(it, now) }
+            // The intent describes the values the device now holds, with the revisions it knows.
+            val products = ids.mapNotNull { productDao.findProductById(it) }
+            intents.record(accountId, now) { LocalInventoryOperations.itemsChanged(products, updated) }
+            ids
         }
         pushAffectedProducts(affectedProducts)
     }
@@ -205,12 +225,14 @@ class DefaultProductRepository @Inject constructor(
 
     override suspend fun deleteItems(itemIds: List<Int>) {
         val now = System.currentTimeMillis()
+        val accountId = currentAccountId()
         val affectedProducts = localTransactions.run {
             val current = itemIds.distinct().mapNotNull { itemDao.getItem(it) }
             current.forEach { itemDao.deleteItem(it.uid) }
-            current.map { it.productId }.distinct().also { ids ->
-                ids.forEach { productDao.touchUpdatedAt(it, now) }
-            }
+            val ids = current.map { it.productId }.distinct()
+            ids.forEach { productDao.touchUpdatedAt(it, now) }
+            intents.record(accountId, now) { LocalInventoryOperations.itemsDeleted(current) }
+            ids
         }
         pushAffectedProducts(affectedProducts)
     }
@@ -236,6 +258,8 @@ class DefaultProductRepository @Inject constructor(
     }
 
     override suspend fun deleteProduct(productId: Int) {
+        // No V2 intent yet: the server keeps a product's items as separate documents, so deleting one
+        // has to remove them in the same intent. That is the pending product-deletion stage.
         val product = productDao.findProductById(productId)
         productDao.deleteProduct(productId)
         syncIfAuthenticated { userId ->
@@ -355,6 +379,9 @@ class DefaultProductRepository @Inject constructor(
                 }
         }
     }
+
+    /** The account that owns these rows, or null while the device is used without one. */
+    private suspend fun currentAccountId(): String? = authRepository.currentUser.first()?.uid
 
     private fun itemLog(item: ItemEntity) =
         "{id=${item.uid},serverId=${item.serverId},quantity=${item.quantity},unit=${item.unit},expiration=${item.expirationDate},added=${item.addedAt}}"

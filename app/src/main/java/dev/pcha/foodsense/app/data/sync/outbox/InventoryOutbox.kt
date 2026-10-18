@@ -9,10 +9,12 @@ import javax.inject.Inject
  * Durable store for versioned sync intents. Not connected to the legacy sender: replaying versioned
  * intents through its full-product upserts would not provide idempotency or CAS.
  *
- * It owns every `sync_outbox` transition. Two of them change local inventory state too and must be
+ * It owns every `sync_outbox` transition. Three of them change local inventory state too and must be
  * atomic with it:
  *
- * - [enqueue] commits a local mutation together with the intent that describes it.
+ * - [enqueue] commits a local mutation together with the intent that describes it, and with the
+ *   revisions that intent reserves.
+ * - [recordCommitted] does the same for a mutation the caller already applied in its own transaction.
  * - [acknowledge] commits a verified server receipt's effects together with the intent removal.
  */
 class InventoryOutbox @Inject constructor(private val database: AppDatabase) {
@@ -23,17 +25,60 @@ class InventoryOutbox @Inject constructor(private val database: AppDatabase) {
         localMutation: suspend () -> T,
     ): T {
         require(accountId.isNotBlank())
-        val payload = operation.encode()
         return database.withTransaction {
             // Duplicate operation IDs fail before executing the local mutation a second time.
-            database.syncOutboxDao().insert(SyncOutboxEntry(
-                operationId = operation.id,
-                accountId = accountId,
-                payloadVersion = InventoryOperation.PAYLOAD_VERSION,
-                payload = payload,
-                createdAt = createdAt,
-            ))
-            localMutation()
+            insertIntent(accountId, operation, createdAt)
+            localMutation().also { advanceOptimistically(operation) }
+        }
+    }
+
+    /**
+     * Commits the intent for a mutation the caller already applied inside this transaction, and reserves
+     * the revisions that intent will produce.
+     *
+     * Call it **after** the local mutation: Room's `@Update` writes the row's own revision column, so a
+     * bump made earlier in the same transaction is overwritten by the value it replaced.
+     */
+    suspend fun recordCommitted(accountId: String, operation: InventoryOperation, createdAt: Long) {
+        require(accountId.isNotBlank())
+        database.withTransaction {
+            insertIntent(accountId, operation, createdAt)
+            advanceOptimistically(operation)
+        }
+    }
+
+    private suspend fun insertIntent(accountId: String, operation: InventoryOperation, createdAt: Long) {
+        database.syncOutboxDao().insert(SyncOutboxEntry(
+            operationId = operation.id,
+            accountId = accountId,
+            payloadVersion = InventoryOperation.PAYLOAD_VERSION,
+            payload = operation.encode(),
+            createdAt = createdAt,
+        ))
+    }
+
+    /**
+     * Reserves the revisions an intent will produce. A stored revision then means "the revision the
+     * server knows, plus every write this device has queued for that entity", so a second intent for the
+     * same entity uses a base the server will still accept instead of one its own queue already
+     * overtook. The server assigns exactly `baseRevision + 1` to every entity an operation writes, and
+     * FIFO order is what keeps that arithmetic valid.
+     *
+     * Monotonic, like a receipt's advancement. A deletion has nothing to reserve: it leaves no local row,
+     * and the server only tombstones an entity the intent deletes without moving its revision on.
+     */
+    private suspend fun advanceOptimistically(operation: InventoryOperation) {
+        operation.changes.forEach { change ->
+            if (change.deleted) return@forEach
+            val revision = change.baseRevision + 1
+            when (change.type) {
+                InventoryEntityType.PRODUCT -> database.productDao()
+                    .findProductByEntityId(change.entityId)
+                    ?.let { database.productDao().advanceRevision(it.uid, revision) }
+                InventoryEntityType.ITEM -> database.itemDao()
+                    .findItemByEntityId(change.entityId)
+                    ?.let { database.itemDao().advanceRevision(it.uid, revision) }
+            }
         }
     }
 
