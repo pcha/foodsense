@@ -293,7 +293,7 @@ If emulators are already running, Gradle reuses them and does not stop them afte
 
 The Firebase CLI is installed as a dev dependency in `firebase/`, so run Firebase commands from that directory.
 
-If local emulators are unavailable for specific Firestore instrumented tests, those tests are designed to skip instead of hiding unrelated regressions behind an environment failure.
+Firestore instrumented tests share `FirebaseEmulatorSession`: each test opens its own named `FirebaseApp`, signs in a fresh anonymous (or email) user, terminates Firestore and deletes the app in teardown. Do not reintroduce a shared `@BeforeClass` client or cached user; that leaked gRPC channels across suites and let one stalled operation hang the whole run. `firebaseEmulatorTest` bounds every setup, test and teardown at 30s and dumps thread stacks to the `FirebaseEmulatorTest` logcat tag on timeout, so a connection problem fails one test instead of stalling `connectedDebugAndroidTest`. Missing emulators now surface as explicit failures rather than silent skips.
 
 ### Compose instrumented tests
 

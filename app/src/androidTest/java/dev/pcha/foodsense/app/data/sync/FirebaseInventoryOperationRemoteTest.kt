@@ -1,39 +1,41 @@
 package dev.pcha.foodsense.app.data.sync
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
-import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
-import com.google.firebase.firestore.firestoreSettings
-import com.google.firebase.firestore.memoryCacheSettings
 import dev.pcha.foodsense.app.data.sync.outbox.*
 import kotlinx.coroutines.async
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
-import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
 
-/** Uses a named demo Firebase app and real auth/rules on local emulators, never the installed account. */
+/** Drives the isolated V2 protocol against real auth/rules on the local emulators, never the account. */
 @RunWith(AndroidJUnit4::class)
 class FirebaseInventoryOperationRemoteTest {
+    private val sessions = mutableListOf<FirebaseEmulatorSession>()
+    private lateinit var firestore: FirebaseFirestore
     private lateinit var remote: FirebaseInventoryOperationRemote
     private lateinit var userId: String
 
     @Before
-    fun setUp() = runBlocking {
-        auth.signOut()
-        userId = withTimeout(15_000) { auth.signInAnonymously().await().user!!.uid }
+    fun setUp() = firebaseEmulatorTest {
+        val session = FirebaseEmulatorSession.open().also { sessions += it }
+        firestore = session.firestore
+        userId = session.userId
         remote = FirebaseInventoryOperationRemote(firestore)
+    }
+
+    @After
+    fun tearDown() = firebaseEmulatorTest {
+        sessions.forEach { session -> runCatching { session.close() } }
+        sessions.clear()
     }
 
     private fun product(id: String = "p1", revision: Long = 0, name: String = "Apples") =
@@ -48,7 +50,7 @@ class FirebaseInventoryOperationRemoteTest {
         firestore.collection("users").document(userId).collection(collection).document(id)
 
     @Test
-    fun apply_fifteenItemsAndProduct_commitTogetherWithReceipt() = runBlocking {
+    fun apply_fifteenItemsAndProduct_commitTogetherWithReceipt() = firebaseEmulatorTest {
         val op = InventoryOperation("add15", listOf(product()) + List(15) { item("i$it") })
         val result = remote.apply(userId, op)
 
@@ -63,7 +65,7 @@ class FirebaseInventoryOperationRemoteTest {
     }
 
     @Test
-    fun replay_afterLaterEdit_returnsOriginalReceiptWithoutOverwritingEdit() = runBlocking {
+    fun replay_afterLaterEdit_returnsOriginalReceiptWithoutOverwritingEdit() = firebaseEmulatorTest {
         val original = InventoryOperation("create", listOf(product()))
         remote.apply(userId, original)
         remote.apply(userId, InventoryOperation("rename", listOf(product(revision = 1, name = "Pears"))))
@@ -78,7 +80,7 @@ class FirebaseInventoryOperationRemoteTest {
     }
 
     @Test
-    fun operationId_changedPayload_isRejected() = runBlocking {
+    fun operationId_changedPayload_isRejected() = firebaseEmulatorTest {
         remote.apply(userId, InventoryOperation("same-id", listOf(product())))
         val error = runCatching { remote.apply(userId, InventoryOperation("same-id", listOf(product(name = "Other")))) }.exceptionOrNull()
         assertTrue(error.hasCause<InventoryOperationIdReused>())
@@ -86,7 +88,7 @@ class FirebaseInventoryOperationRemoteTest {
     }
 
     @Test
-    fun staleRevision_abortsOtherChangesAndDoesNotCreateReceipt() = runBlocking {
+    fun staleRevision_abortsOtherChangesAndDoesNotCreateReceipt() = firebaseEmulatorTest {
         remote.apply(userId, InventoryOperation("create", listOf(product())))
         val failed = InventoryOperation("conflict", listOf(product("p2"), product(revision = 0, name = "Stale")))
 
@@ -98,7 +100,7 @@ class FirebaseInventoryOperationRemoteTest {
     }
 
     @Test
-    fun delete_staleEditAndRepeatedDelete_preservesTombstoneAndRevision() = runBlocking {
+    fun delete_staleEditAndRepeatedDelete_preservesTombstoneAndRevision() = firebaseEmulatorTest {
         remote.apply(userId, InventoryOperation("create", listOf(product())))
         remote.apply(userId, InventoryOperation("edit", listOf(product(revision = 1, name = "Pears"))))
         val deletion = InventoryChange(InventoryEntityType.PRODUCT, "p1", 1, deleted = true)
@@ -117,7 +119,7 @@ class FirebaseInventoryOperationRemoteTest {
     }
 
     @Test
-    fun concurrentEdits_sameBaseRevision_onlyOneSucceeds() = runBlocking {
+    fun concurrentEdits_sameBaseRevision_onlyOneSucceeds() = firebaseEmulatorTest {
         remote.apply(userId, InventoryOperation("create", listOf(product())))
         val a = async { runCatching { remote.apply(userId, InventoryOperation("a", listOf(product(revision = 1, name = "A")))) } }
         val b = async { runCatching { remote.apply(userId, InventoryOperation("b", listOf(product(revision = 1, name = "B")))) } }
@@ -129,37 +131,34 @@ class FirebaseInventoryOperationRemoteTest {
     }
 
     @Test
-    fun twoIndependentClients_sameAccount_detectConcurrentEditWithoutOverwriting() = runBlocking {
+    fun twoIndependentClients_sameAccount_detectConcurrentEditWithoutOverwriting() = firebaseEmulatorTest {
         val suffix = UUID.randomUUID().toString()
         val email = "inventory-$suffix@example.test"
         val password = "emulator-only-password"
-        userId = auth.createUserWithEmailAndPassword(email, password).await().user!!.uid
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val secondApp = FirebaseApp.initializeApp(context, emulatorOptions(), "second-device-$suffix")
-        val secondAuth = FirebaseAuth.getInstance(secondApp).apply { useEmulator("10.0.2.2", 9099) }
-        val secondFirestore = FirebaseFirestore.getInstance(secondApp).apply {
-            useEmulator("10.0.2.2", 8080)
-            firestoreSettings = firestoreSettings { setLocalCacheSettings(memoryCacheSettings {}) }
-        }
-        try {
-            secondAuth.signInWithEmailAndPassword(email, password).await()
-            val secondRemote = FirebaseInventoryOperationRemote(secondFirestore)
-            remote.apply(userId, InventoryOperation("create", listOf(product())))
-            val a = async { runCatching { remote.apply(userId, InventoryOperation("device-a", listOf(product(revision = 1, name = "A")))) } }
-            val b = async { runCatching { secondRemote.apply(userId, InventoryOperation("device-b", listOf(product(revision = 1, name = "B")))) } }
-            val results = listOf(a.await(), b.await())
-            assertEquals(1, results.count { it.isSuccess })
-            assertTrue(results.single { it.isFailure }.exceptionOrNull().hasCause<InventoryRevisionConflict>())
-            assertEquals(2L, entity(FirebaseInventoryOperationRemote.PRODUCTS, "p1").get(Source.SERVER).await().getLong("revision"))
-        } finally {
-            secondFirestore.terminate().await()
-            secondAuth.signOut()
-            secondApp.delete()
-        }
+        val first = FirebaseEmulatorSession.open {
+            it.createUserWithEmailAndPassword(email, password).await()
+            Unit
+        }.also { sessions += it }
+        val second = FirebaseEmulatorSession.open {
+            it.signInWithEmailAndPassword(email, password).await()
+            Unit
+        }.also { sessions += it }
+
+        firestore = first.firestore
+        userId = first.userId
+        remote = FirebaseInventoryOperationRemote(first.firestore)
+        val secondRemote = FirebaseInventoryOperationRemote(second.firestore)
+        remote.apply(userId, InventoryOperation("create", listOf(product())))
+        val a = async { runCatching { remote.apply(userId, InventoryOperation("device-a", listOf(product(revision = 1, name = "A")))) } }
+        val b = async { runCatching { secondRemote.apply(userId, InventoryOperation("device-b", listOf(product(revision = 1, name = "B")))) } }
+        val results = listOf(a.await(), b.await())
+        assertEquals(1, results.count { it.isSuccess })
+        assertTrue(results.single { it.isFailure }.exceptionOrNull().hasCause<InventoryRevisionConflict>())
+        assertEquals(2L, entity(FirebaseInventoryOperationRemote.PRODUCTS, "p1").get(Source.SERVER).await().getLong("revision"))
     }
 
     @Test
-    fun concurrentReplays_sameOperation_createsOneReceiptAndOneRevision() = runBlocking {
+    fun concurrentReplays_sameOperation_createsOneReceiptAndOneRevision() = firebaseEmulatorTest {
         val operation = InventoryOperation("same-op", listOf(product()))
         val a = async { remote.apply(userId, operation) }
         val b = async { remote.apply(userId, operation) }
@@ -172,7 +171,7 @@ class FirebaseInventoryOperationRemoteTest {
     }
 
     @Test
-    fun deleteTenItems_isOneOperation_preservesOtherFive() = runBlocking {
+    fun deleteTenItems_isOneOperation_preservesOtherFive() = firebaseEmulatorTest {
         remote.apply(userId, InventoryOperation("add15", listOf(product()) + List(15) { item("i$it") }))
         val removed = List(10) { InventoryChange(InventoryEntityType.ITEM, "i$it", 1, deleted = true) }
         val result = remote.apply(userId, InventoryOperation("delete10", removed))
@@ -185,12 +184,12 @@ class FirebaseInventoryOperationRemoteTest {
     }
 
     @Test
-    fun crossAccountWrite_isDenied() = runBlocking {
+    fun crossAccountWrite_isDenied() = firebaseEmulatorTest {
         assertTrue(runCatching { remote.apply("someone-else", InventoryOperation("op", listOf(product()))) }.isFailure)
     }
 
     @Test
-    fun acknowledgementLost_newAdapterReplaysSameIdWithoutReapplyingMutation() = runBlocking {
+    fun acknowledgementLost_newAdapterReplaysSameIdWithoutReapplyingMutation() = firebaseEmulatorTest {
         val operation = InventoryOperation("lost-ack", listOf(product()))
         remote.apply(userId, operation) // Simulate losing this acknowledgement before updating Room.
         val restarted = FirebaseInventoryOperationRemote(firestore)
@@ -201,26 +200,4 @@ class FirebaseInventoryOperationRemoteTest {
 
     private inline fun <reified T : Throwable> Throwable?.hasCause(): Boolean =
         generateSequence(this) { it.cause }.any { it is T }
-
-    companion object {
-        private lateinit var firestore: FirebaseFirestore
-        private lateinit var auth: FirebaseAuth
-
-        @JvmStatic
-        @BeforeClass
-        fun configureEmulator() {
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val name = "inventory-operation-emulator-test"
-            val app = runCatching { FirebaseApp.getInstance(name) }
-                .getOrElse { FirebaseApp.initializeApp(context, emulatorOptions(), name) }
-            auth = FirebaseAuth.getInstance(app).apply { useEmulator("10.0.2.2", 9099) }
-            firestore = FirebaseFirestore.getInstance(app).apply {
-                useEmulator("10.0.2.2", 8080)
-                firestoreSettings = firestoreSettings { setLocalCacheSettings(memoryCacheSettings {}) }
-            }
-        }
-
-        private fun emulatorOptions(): FirebaseOptions = FirebaseOptions.Builder().setProjectId("demo-foodsense")
-            .setApplicationId("1:1:android:1").setApiKey("fake-api-key").build()
-    }
 }
