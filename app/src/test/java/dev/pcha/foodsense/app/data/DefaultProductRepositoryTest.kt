@@ -5,6 +5,7 @@ import dev.pcha.foodsense.app.data.auth.AuthRepository
 import dev.pcha.foodsense.app.data.auth.User
 import dev.pcha.foodsense.app.data.local.database.ItemDao
 import dev.pcha.foodsense.app.data.local.database.ItemEntity
+import dev.pcha.foodsense.app.data.local.database.LocalTransactions
 import dev.pcha.foodsense.app.data.local.database.ProductDao
 import dev.pcha.foodsense.app.data.local.database.ProductEntity
 import dev.pcha.foodsense.app.data.local.database.ProductUnit
@@ -45,6 +46,7 @@ class DefaultProductRepositoryTest {
             authRepository = FakeAuthRepository(),
             syncRepository = syncRepository,
             appScope = TestScope(),
+            localTransactions = FakeLocalTransactions(),
         )
         return Triple(repo, itemDao, syncRepository)
     }
@@ -150,7 +152,7 @@ class DefaultProductRepositoryTest {
         repository.add("Cheese", 1f, null, null)
         val productDao = FakeProductDao(FakeItemDao())
         val itemDao = FakeItemDao()
-        val repo2 = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
+        val repo2 = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope(), FakeLocalTransactions())
         repo2.add("Cheese", 1f, null, null)
         productDao.updateServerId(1, "server-cheese")
 
@@ -163,7 +165,7 @@ class DefaultProductRepositoryTest {
     fun applyRemoteChanges_existingProductNameChanged_nameIsUpdatedLocally() = runTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
-        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
+        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope(), FakeLocalTransactions())
         repository.add("Milk", 1f, null, null)
         productDao.updateServerId(1, "server-milk")
 
@@ -183,7 +185,7 @@ class DefaultProductRepositoryTest {
     fun applyRemoteChanges_productItemsChanged_itemsAreReplacedLocally() = runTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
-        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
+        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope(), FakeLocalTransactions())
         repository.add("Milk", 1f, ProductUnit.L, null)
         productDao.updateServerId(1, "server-milk")
         val newDate = LocalDate.now().plusDays(14)
@@ -207,7 +209,7 @@ class DefaultProductRepositoryTest {
     fun applyRemoteChanges_remoteOlderThanLocal_keepsLocalEdit() = runTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
-        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
+        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope(), FakeLocalTransactions())
         repository.add("Milk", 1f, null, null)
         productDao.updateServerId(1, "server-milk")
 
@@ -227,7 +229,7 @@ class DefaultProductRepositoryTest {
     fun applyRemoteChanges_remoteNewerThanLocal_appliesRemote() = runTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
-        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
+        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope(), FakeLocalTransactions())
         repository.add("Milk", 1f, null, null)
         productDao.updateServerId(1, "server-milk")
 
@@ -319,6 +321,22 @@ class DefaultProductRepositoryTest {
     }
 
     @Test
+    fun applyRemoteChanges_unchangedSnapshot_preservesLocalItemIds() = runTest {
+        val fixture = Fixture()
+        val snapshot = listOf(FirestoreProduct(
+            "doc-a", "Milk",
+            listOf(FirestoreItem("item-a", 6f, null, null, LocalDate.now().toEpochDay())),
+            5L,
+        ))
+        fixture.repository.applyRemoteChanges("user-1", snapshot)
+        val before = fixture.repository.products.first()
+
+        fixture.repository.applyRemoteChanges("user-1", snapshot)
+
+        assertEquals(before, fixture.repository.products.first())
+    }
+
+    @Test
     fun applyRemoteChanges_appliedTwice_isIdempotent() = runTest {
         val fixture = Fixture()
         val today = LocalDate.now().toEpochDay()
@@ -363,7 +381,7 @@ class DefaultProductRepositoryTest {
     fun add_newProduct_bumpsProductUpdatedAt() = runTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
-        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
+        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope(), FakeLocalTransactions())
 
         repository.add("Milk", 1f, null, null)
 
@@ -374,7 +392,7 @@ class DefaultProductRepositoryTest {
     fun updateItem_bumpsProductUpdatedAt() = runTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
-        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
+        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope(), FakeLocalTransactions())
         repository.add("Milk", 1f, null, null)
         productDao.touchUpdatedAt(1, 1L)
         val itemId = repository.products.first().first().items.first().uid
@@ -388,7 +406,7 @@ class DefaultProductRepositoryTest {
     fun clearLocalData_preservesLocalOnlyProducts_deletesSynced() = runTest {
         val itemDao = FakeItemDao()
         val productDao = FakeProductDao(itemDao)
-        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope())
+        val repository = DefaultProductRepository(productDao, itemDao, FakeAuthRepository(), FakeSyncRepository(), TestScope(), FakeLocalTransactions())
         repository.add("Synced", 1f, null, null)
         repository.add("LocalOnly", 1f, null, null)
         productDao.updateServerId(1, "server-1")
@@ -462,6 +480,60 @@ class DefaultProductRepositoryTest {
         val product = fixture.productDao.findProductByName("Milk")!!
         assertNotNull(product.serverId)
         assertNotNull(fixture.itemDao.getItemsByProduct(product.uid).single().serverId)
+    }
+
+    @Test
+    fun add_manyItemsForNewProduct_serializesInitialFirestoreDocumentCreation() = runTest {
+        val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
+
+        repeat(15) { fixture.repository.add("Carrots", 1f, null, null) }
+        runCurrent()
+
+        assertEquals(1, fixture.syncRepository.remote.value.size)
+        assertEquals(15, fixture.syncRepository.remote.value.single().items.size)
+        assertTrue(fixture.syncRepository.upserts.drop(1).all { it.serverId.isNotBlank() })
+    }
+
+    @Test
+    fun deleteItems_multipleItems_pushesRemainingListOnce() = runTest {
+        val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
+        fixture.repository.addBatch("Apples", 1f, null, null, count = 15)
+        runCurrent()
+        val product = fixture.repository.products.first().single()
+        fixture.syncRepository.itemUpdates.clear()
+
+        fixture.repository.deleteItems(product.items.take(10).map { it.uid })
+        runCurrent()
+
+        assertEquals(5, fixture.repository.products.first().single().items.size)
+        assertEquals(1, fixture.syncRepository.itemUpdates.size)
+        assertEquals(5, fixture.syncRepository.itemUpdates.single().second.size)
+    }
+
+    @Test
+    fun updateItems_multipleItems_pushesUpdatedListOnce() = runTest {
+        val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
+        fixture.repository.addBatch("Apples", 1f, null, null, count = 15)
+        runCurrent()
+        val product = fixture.repository.products.first().single()
+        fixture.syncRepository.itemUpdates.clear()
+
+        fixture.repository.updateItems(product.items.take(10).map { it.uid }, 2f, null, null)
+        runCurrent()
+
+        assertEquals(10, fixture.repository.products.first().single().items.count { it.quantity == 2f })
+        assertEquals(1, fixture.syncRepository.itemUpdates.size)
+    }
+
+    @Test
+    fun addBatch_pushesAllItemsInOneUpsert() = runTest {
+        val fixture = Fixture(FakeAuthRepository.signedIn(), backgroundScope)
+
+        fixture.repository.addBatch("Apples", 1f, null, null, count = 15)
+        runCurrent()
+
+        assertEquals(1, fixture.syncRepository.upserts.size)
+        assertEquals(15, fixture.syncRepository.remote.value.single().items.size)
     }
 
     @Test
@@ -588,6 +660,7 @@ class DefaultProductRepositoryTest {
         fixture.repository.add("Milk", 2f, null, null)
         runCurrent()
         val productId = fixture.productDao.findProductByName("Milk")!!.uid
+        assertEquals(2, fixture.itemDao.getItemsByProduct(productId).size)
         val firstItem = fixture.itemDao.getItemsByProduct(productId).first().uid
 
         fixture.repository.deleteItem(firstItem)
@@ -673,7 +746,12 @@ private class Fixture(
         authRepository = authRepository,
         syncRepository = syncRepository,
         appScope = appScope,
+        localTransactions = FakeLocalTransactions(),
     )
+}
+
+private class FakeLocalTransactions : LocalTransactions {
+    override suspend fun <T> run(block: suspend () -> T): T = block()
 }
 
 private class FakeItemDao : ItemDao {
@@ -698,7 +776,9 @@ private class FakeItemDao : ItemDao {
     override suspend fun getProductNamesExpiringOn(epochDay: Long): List<String> = emptyList()
 
     override suspend fun updateServerId(uid: Int, serverId: String) {
-        _items.value = _items.value.map { if (it.uid == uid) it.copy(serverId = serverId) else it }
+        _items.value = _items.value.map {
+            if (it.uid == uid) it.copy(serverId = serverId).also { copy -> copy.uid = uid } else it
+        }
     }
 
     override suspend fun getItemsByProduct(productId: Int): List<ItemEntity> =

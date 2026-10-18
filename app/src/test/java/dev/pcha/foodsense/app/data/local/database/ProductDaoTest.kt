@@ -53,6 +53,23 @@ class ProductDaoTest {
     )
 
     @Test
+    fun replaceItems_failedInsertion_rollsBackDeletesAndPartialInserts() = runTest {
+        val uid = insertProduct("Milk")
+        insertItem(uid, quantity = 6f)
+        val before = itemDao.getItemsByProduct(uid)
+
+        val result = runCatching {
+            itemDao.replaceItems(uid, listOf(
+                ItemEntity(uid, 10f, null, null, LocalDate.now()),
+                ItemEntity(-1, 1f, null, null, LocalDate.now()),
+            ))
+        }
+
+        org.junit.Assert.assertTrue(result.isFailure)
+        assertEquals(before, itemDao.getItemsByProduct(uid))
+    }
+
+    @Test
     fun deleteProduct_productWithItems_cascadesToItems() = runTest {
         val uid = insertProduct("Milk")
         insertItem(uid)

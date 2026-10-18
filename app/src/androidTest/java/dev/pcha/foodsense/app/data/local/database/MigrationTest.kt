@@ -19,6 +19,34 @@ class MigrationTest {
     )
 
     @Test
+    fun migrate7To8_preservesInventoryAndCreatesEmptyOutbox() {
+        helper.createDatabase(TEST_DB, 7).apply {
+            execSQL("INSERT INTO product (uid, name, serverId, updatedAt) VALUES (1, 'Milk', 'doc-1', 42)")
+            execSQL("INSERT INTO item (uid, productId, quantity, unit, expirationDate, addedAt, serverId) VALUES (1, 1, 6, NULL, NULL, 20000, 'item-1')")
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(TEST_DB, 8, true, MIGRATION_7_8)
+        db.query("SELECT quantity FROM item WHERE uid = 1").use {
+            it.moveToFirst()
+            assertEquals(6f, it.getFloat(0))
+        }
+        db.query("SELECT COUNT(*) FROM sync_outbox").use {
+            it.moveToFirst()
+            assertEquals(0, it.getInt(0))
+        }
+        db.close()
+    }
+
+    @Test
+    fun migrateAll_2To8_succeeds() {
+        helper.createDatabase(TEST_DB, 2).close()
+        helper.runMigrationsAndValidate(
+            TEST_DB, 8, true,
+            MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+        ).close()
+    }
+
+    @Test
     @Throws(IOException::class)
     fun migrate6To7_addsUpdatedAtDefaultingToZero() {
         helper.createDatabase(TEST_DB, 6).apply {

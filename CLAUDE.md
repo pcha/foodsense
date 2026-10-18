@@ -19,7 +19,7 @@ Before implementing non-trivial Android changes, review the project skills if th
 - **Min SDK:** 26
 - **Target SDK:** 36
 - **Module structure:** single Android module, `:app`
-- **Room schema:** version 7
+- **Room schema:** version 8
 
 ## Tech stack
 
@@ -150,10 +150,32 @@ Recent Room migration context:
 - v5 added `barcode_registry`.
 - v6 added `serverId` to `product` and `item` for sync.
 - v7 added `updatedAt` to `product` for last-write-wins conflict resolution.
+- v8 adds the account-scoped `sync_outbox` table without rewriting existing inventory.
 
 ## Data layer: offline-first Firestore sync
 
 Room is the single source of truth. The UI reads from Room only. Firestore sync runs in the background.
+
+### Versioned outbox rollout status
+
+The versioned outbox protocol is **not active yet**. The app still uses the legacy product-array
+Firestore sender described below. Do not wire `InventoryOutbox` to that sender: it cannot enforce
+operation deduplication, entity revisions, or deletion tombstones.
+
+The first rollout stage provides:
+
+- `LocalTransactions` / `RoomLocalTransactions`: one Room transaction per batch add, update, or delete.
+- `ProductRepository.updateItems` and `deleteItems`: ViewModels submit one action, not per-item writes.
+- One legacy remote write per affected product for a batch edit/delete.
+- `InventoryOutbox.enqueue`: commits a local mutation and an immutable, versioned operation together.
+- Account-scoped FIFO ordering, attempts, transient-error metadata, and a blocked-head state. Ordering
+  uses the database sequence, not a device timestamp. Payloads retain base revisions and tombstones.
+- No outbox worker is scheduled and application mutations do not enqueue intents yet. Remote CAS,
+  receipts, entity revision persistence, tombstones, conflict resolution, guest/account ownership,
+  and a legacy-client cutover/migration are still required before activation.
+
+Tests use real Room to check intermediate inventory emissions, rollback on failure/cancellation,
+duplicate operation IDs, account isolation, and persistence after reopening the database.
 
 ```text
 data/sync/

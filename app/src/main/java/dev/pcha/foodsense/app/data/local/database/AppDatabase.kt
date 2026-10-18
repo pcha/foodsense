@@ -89,10 +89,31 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
-@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class], version = 7)
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS sync_outbox (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                operationId TEXT NOT NULL,
+                accountId TEXT NOT NULL,
+                payloadVersion INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                createdAt INTEGER NOT NULL,
+                attempts INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                lastErrorCode TEXT
+            )
+        """.trimIndent())
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sync_outbox_operationId ON sync_outbox (operationId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_sync_outbox_accountId ON sync_outbox (accountId)")
+    }
+}
+
+@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class, SyncOutboxEntry::class], version = 8)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
     abstract fun itemDao(): ItemDao
     abstract fun barcodeRegistryDao(): BarcodeRegistryDao
+    abstract fun syncOutboxDao(): SyncOutboxDao
 }

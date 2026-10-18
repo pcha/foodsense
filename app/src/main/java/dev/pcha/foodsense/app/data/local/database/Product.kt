@@ -119,6 +119,12 @@ interface ProductDao {
 
 @Dao
 interface ItemDao {
+    @Transaction
+    suspend fun replaceItems(productId: Int, items: List<ItemEntity>) {
+        getItemsByProduct(productId).forEach { deleteItem(it.uid) }
+        items.forEach { insertItem(it) }
+    }
+
     @Insert
     suspend fun insertItem(item: ItemEntity)
 
