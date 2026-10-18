@@ -170,12 +170,46 @@ The first rollout stage provides:
 - `InventoryOutbox.enqueue`: commits a local mutation and an immutable, versioned operation together.
 - Account-scoped FIFO ordering, attempts, transient-error metadata, and a blocked-head state. Ordering
   uses the database sequence, not a device timestamp. Payloads retain base revisions and tombstones.
-- No outbox worker is scheduled and application mutations do not enqueue intents yet. Remote CAS,
-  receipts, entity revision persistence, tombstones, conflict resolution, guest/account ownership,
-  and a legacy-client cutover/migration are still required before activation.
+- No outbox worker is scheduled and application mutations do not enqueue intents yet. The isolated
+  remote protocol below exists, but local entity revision persistence, conflict presentation/resolution,
+  guest/account ownership, and a legacy-client cutover/migration are still required before activation.
 
 Tests use real Room to check intermediate inventory emissions, rollback on failure/cancellation,
 duplicate operation IDs, account isolation, and persistence after reopening the database.
+
+### Isolated V2 remote operation protocol
+
+`FirebaseInventoryOperationRemote` implements `InventoryOperationRemote` without a live Hilt binding.
+It only uses the new collections under `users/{uid}`:
+
+- `inventory_products`: independent product documents.
+- `inventory_items`: independent lot documents, with `productId` as a field.
+- `inventory_operations`: immutable operation receipts, keyed by the persisted operation ID.
+
+An operation reads its receipt and affected entities in one Firestore transaction. Existing receipts
+return the original result without touching newer entity state; reusing an ID for a different payload
+is rejected. SHA-256 fingerprints canonicalize object keys and entity ordering. Successful operations
+write the entities and receipt atomically. Entity revisions advance by one; `updatedAt` / `committedAt`
+are server timestamps for diagnostics, not conflict arbitration.
+
+The initial conflict policy is deliberately conservative: edits require an exact base revision;
+deletions may beat a concurrent edit, create a persistent tombstone, and repeated deletions are no-ops.
+Edits cannot resurrect tombstones. Disjoint-field merges are not implemented: they still conflict.
+If CAS security rules reject a concurrent commit before Firestore returns ABORTED, the adapter checks
+authorized server reads for revision drift and re-evaluates the same operation at most once. Genuine
+authorization failures are propagated. `disableNetwork()` was not a reliable simulation of transaction
+isolation in emulator tests; do not claim offline transaction coverage from that API alone.
+
+Atomic actions are capped at 100 entity changes / 128 KiB canonical payload and are rejected, never
+silently split. Rules tests cover both 15-item and maximum-size actions. Receipts have no TTL. Rules
+enforce owner isolation, matching receipts on entity writes, revision steps, and immutable tombstones
+and receipts. They do not recompute SHA-256 or prove every effect in an owner-created receipt was
+written: protocol correctness assumes the owning clients use this adapter; a hostile owner can poison
+their own receipt IDs. A trusted backend would be needed to enforce that stronger invariant.
+
+Before activation, also implement parent/product deletion semantics, referential consistency, and
+permanent receipt/tombstone retention policy. This adapter does not migrate legacy products or query
+and reconcile the V2 collections into Room.
 
 ```text
 data/sync/
