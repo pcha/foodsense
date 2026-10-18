@@ -171,8 +171,9 @@ The first rollout stage provides:
 - Account-scoped FIFO ordering, attempts, transient-error metadata, and a blocked-head state. Ordering
   uses the database sequence, not a device timestamp. Payloads retain base revisions and tombstones.
 - No outbox worker is scheduled and application mutations do not enqueue intents yet. The isolated
-  remote protocol below exists, but local entity revision persistence, conflict presentation/resolution,
-  guest/account ownership, and a legacy-client cutover/migration are still required before activation.
+  remote protocol and the drain engine below exist, but local entity revision persistence, conflict
+  presentation/resolution, guest/account ownership, and a legacy-client cutover/migration are still
+  required before activation.
 
 Tests use real Room to check intermediate inventory emissions, rollback on failure/cancellation,
 duplicate operation IDs, account isolation, and persistence after reopening the database.
@@ -211,12 +212,43 @@ Before activation, also implement parent/product deletion semantics, referential
 permanent receipt/tombstone retention policy. This adapter does not migrate legacy products or query
 and reconcile the V2 collections into Room.
 
+### Durable outbox drain
+
+`InventoryOutboxDrain` consumes one account's `sync_outbox` through an `InventoryOperationRemote`,
+oldest intent first (`HEAD`), and is not bound in Hilt or scheduled yet. It applies strictly FIFO and
+stops at the first intent that cannot be applied, because a later intent can depend on an earlier one.
+Ordering and retry state survive process death; the payload never changes after insertion.
+
+Failure policy uses the protocol taxonomy, not Firestore types:
+
+- `InventoryTransientFailure` (UNAVAILABLE, DEADLINE_EXCEEDED, ABORTED, RESOURCE_EXHAUSTED, INTERNAL,
+  CANCELLED, UNKNOWN, UNAUTHENTICATED, or raw `IOException`): the intent stays PENDING with its error
+  code and one more attempt recorded; a later run retries it. Retrying is safe because the remote
+  deduplicates by operation ID.
+- `InventoryPermanentFailure` (PERMISSION_DENIED, INVALID_ARGUMENT, FAILED_PRECONDITION, NOT_FOUND,
+  ALREADY_EXISTS, ...), `InventoryRevisionConflict`, or `InventoryOperationIdReused`: the intent is
+  BLOCKED — never dropped and never retried blindly — and the queue stops behind it until resolution is
+  implemented. A corrupt payload is also blocked, without calling the remote.
+- Coroutine cancellation propagates and leaves the row untouched.
+
+The attempt counter increments before the network call, so a crash mid-flight is charged. A crash
+between a successful `apply` and the acknowledgement is safe: replaying the same operation ID returns
+the stored receipt and the intent is simply sent again. The drain serializes itself with an in-process
+mutex; the future worker must also use unique work per account. Local revisions are still not persisted
+and conflicts are not surfaced to the UI — those, plus the worker, reconciliation and cutover, remain.
+
 ```text
 data/sync/
 ├── FirestoreSyncRepository.kt
 ├── FirebaseFirestoreSyncRepository.kt
 ├── SyncWorker.kt
-└── di/SyncModule.kt
+├── di/SyncModule.kt
+└── outbox/
+    ├── InventoryOperation.kt            # versioned intent + wire payload
+    ├── InventoryOperationProtocol.kt    # entity keys, receipts, failure taxonomy, conflict policy
+    ├── InventoryOutbox.kt               # atomic enqueue with the local mutation
+    ├── InventoryOutboxDrain.kt          # FIFO drain, retry/block policy
+    └── FirebaseInventoryOperationRemote.kt
 ```
 
 Core rules implemented in `DefaultProductRepository`:

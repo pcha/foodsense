@@ -5,6 +5,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Source
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -13,26 +14,43 @@ import kotlinx.serialization.json.double
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.longOrNull
+import java.io.IOException
 
 /**
  * Isolated V2 protocol. Deliberately not bound in Hilt or invoked by the legacy repository.
  * All entity reads precede all writes; Firestore retries CAS conflicts inside the transaction.
+ * Transport failures are translated to [InventoryTransientFailure] / [InventoryPermanentFailure] so the
+ * outbox drain can decide between retrying later and blocking for resolution without knowing Firestore.
  */
 class FirebaseInventoryOperationRemote(private val firestore: FirebaseFirestore) : InventoryOperationRemote {
     override suspend fun apply(accountId: String, operation: InventoryOperation): InventoryOperationReceipt {
         require(accountId.isNotBlank() && '/' !in accountId)
         val fingerprint = InventoryOperationProtocol.fingerprint(operation)
         return try {
-            transact(accountId, operation, fingerprint)
+            attempt(accountId, operation, fingerprint)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: FirebaseFirestoreException) {
-            // CAS security rules can reject a racing stale commit before Firestore reports ABORTED.
-            // Re-evaluate exactly once, only after an authorized server read proves revision drift.
-            // A genuine denied read/write remains a permission error; never weaken the rules.
-            if (error.code != FirebaseFirestoreException.Code.PERMISSION_DENIED ||
-                !hasRevisionDrift(accountId, operation)
-            ) throw error
-            transact(accountId, operation, fingerprint)
+            throw error.asInventoryFailure()
+        } catch (error: IOException) {
+            throw InventoryTransientFailure(TRANSIENT_IO, error)
         }
+    }
+
+    private suspend fun attempt(
+        accountId: String,
+        operation: InventoryOperation,
+        fingerprint: String,
+    ): InventoryOperationReceipt = try {
+        transact(accountId, operation, fingerprint)
+    } catch (error: FirebaseFirestoreException) {
+        // CAS security rules can reject a racing stale commit before Firestore reports ABORTED.
+        // Re-evaluate exactly once, only after an authorized server read proves revision drift.
+        // A genuine denied read/write remains a permission error; never weaken the rules.
+        if (error.code != FirebaseFirestoreException.Code.PERMISSION_DENIED ||
+            !hasRevisionDrift(accountId, operation)
+        ) throw error
+        transact(accountId, operation, fingerprint)
     }
 
     private suspend fun hasRevisionDrift(accountId: String, operation: InventoryOperation): Boolean {
@@ -161,4 +179,25 @@ class FirebaseInventoryOperationRemote(private val firestore: FirebaseFirestore)
             InventoryEntityType.ITEM -> ITEMS
         }
     }
+}
+
+private const val TRANSIENT_IO = "IO"
+
+/**
+ * Availability failures keep the intent pending for a later retry; everything else would fail again
+ * unchanged and blocks for resolution. PERMISSION_DENIED reaches here only after [attempt] proved
+ * there is no revision drift, so retrying the same intent cannot succeed.
+ */
+internal fun FirebaseFirestoreException.asInventoryFailure(): Exception = when (code) {
+    FirebaseFirestoreException.Code.UNAVAILABLE,
+    FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
+    FirebaseFirestoreException.Code.ABORTED,
+    FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED,
+    FirebaseFirestoreException.Code.INTERNAL,
+    FirebaseFirestoreException.Code.CANCELLED,
+    FirebaseFirestoreException.Code.UNKNOWN,
+    FirebaseFirestoreException.Code.UNAUTHENTICATED,
+    -> InventoryTransientFailure(code.name, this)
+
+    else -> InventoryPermanentFailure(code.name, this)
 }

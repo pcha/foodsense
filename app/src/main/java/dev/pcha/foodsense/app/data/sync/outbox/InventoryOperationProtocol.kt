@@ -49,6 +49,20 @@ class InventoryRevisionConflict(
 class InventoryOperationIdReused(operationId: String) :
     IllegalStateException("Operation ID reused with a different payload: $operationId")
 
+/**
+ * Retryable transport/availability failure. The intent must stay pending and keep its place in the
+ * FIFO queue; retrying it later is safe because the remote deduplicates by operation ID.
+ */
+class InventoryTransientFailure(val code: String, cause: Throwable? = null) :
+    Exception("Inventory remote temporarily unavailable ($code)", cause)
+
+/**
+ * Non-retryable failure (authorization, malformed intent, rejected request). Retrying unchanged would
+ * fail again, so the intent is blocked for later resolution instead of being dropped or retried blindly.
+ */
+class InventoryPermanentFailure(val code: String, cause: Throwable? = null) :
+    Exception("Inventory remote rejected the operation ($code)", cause)
+
 interface InventoryOperationRemote {
     /** Network-dependent transaction. Caller must retain the local intent until server acknowledgement. */
     suspend fun apply(accountId: String, operation: InventoryOperation): InventoryOperationReceipt
