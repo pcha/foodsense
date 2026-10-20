@@ -273,7 +273,11 @@ class DefaultProductRepository @Inject constructor(
             current.forEach { itemDao.deleteItem(it.uid) }
             val ids = current.map { it.productId }.distinct()
             ids.forEach { productDao.touchUpdatedAt(it, now) }
-            intents.record(accountId, now) { LocalInventoryOperations.itemsDeleted(current) }
+            // Removing a product's last item is how the user deletes a product: the list hides empty
+            // products and the legacy sender deletes the document, so V2 has to tombstone it as well.
+            val emptied = ids.mapNotNull { productDao.findProductById(it) }
+                .filter { itemDao.getItemsByProduct(it.uid).isEmpty() }
+            intents.record(accountId, now) { LocalInventoryOperations.itemsDeleted(current, emptied) }
             ids
         }
         pushAffectedProducts(affectedProducts)

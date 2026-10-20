@@ -35,9 +35,15 @@ object LocalInventoryOperations {
         return operations(creations + itemChanges)
     }
 
-    /** Removes [items]. A deletion carries no fields, so it needs no product document to exist. */
-    fun itemsDeleted(items: List<ItemEntity>): List<InventoryOperation> =
-        operations(items.map(LocalInventoryChanges::itemDeletion))
+    /**
+     * Removes [items], and the products in [emptiedProducts] that this action leaves without items.
+     *
+     * Deleting a product's last item is a product deletion in this app: the UI hides empty products and
+     * the legacy sender deletes the product document, so V2 has to tombstone it too or it keeps an empty
+     * product forever. The product changes come last, after the item tombstones that made them empty.
+     */
+    fun itemsDeleted(items: List<ItemEntity>, emptiedProducts: List<ProductEntity> = emptyList()): List<InventoryOperation> =
+        operations(items.map(LocalInventoryChanges::itemDeletion) + emptiedProducts.map(LocalInventoryChanges::productDeletion))
 
     /** Removes a product together with [items], items first so none is orphaned on the server. */
     fun productDeleted(product: ProductEntity, items: List<ItemEntity>): List<InventoryOperation> =

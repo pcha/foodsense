@@ -85,6 +85,33 @@ class LocalInventoryOperationsTest {
     }
 
     @Test
+    fun deletingTheLastItemOfAProduct_tombstonesTheProductAfterIt() {
+        val product = product(revision = 2)
+
+        val changes = LocalInventoryOperations
+            .itemsDeleted(listOf(item(product, revision = 2, entityId = "i1")), listOf(product))
+            .single()
+            .changes
+
+        assertEquals(listOf(InventoryEntityType.ITEM, InventoryEntityType.PRODUCT), changes.map { it.type })
+        assertEquals(product.entityId, changes.last().entityId)
+        assertEquals(2L, changes.last().baseRevision)
+        assertTrue(changes.all { it.deleted && it.fields.isEmpty() })
+    }
+
+    @Test
+    fun deletingSomeItemsOfAProduct_leavesTheProductAlone() {
+        val product = product(revision = 2)
+
+        val changes = LocalInventoryOperations
+            .itemsDeleted(listOf(item(product, revision = 2, entityId = "i1")))
+            .single()
+            .changes
+
+        assertEquals(listOf(InventoryEntityType.ITEM), changes.map { it.type })
+    }
+
+    @Test
     fun rename_carriesTheProductEvenWhenTheServerAlreadyKnowsIt() {
         val known = product(name = "Pears", revision = 4)
 

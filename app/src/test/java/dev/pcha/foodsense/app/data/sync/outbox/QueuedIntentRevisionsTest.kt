@@ -129,6 +129,50 @@ class QueuedIntentRevisionsTest {
     }
 
     @Test
+    fun deletingTheLastItem_tombstonesTheProductInTheSameAction() = runTest {
+        val outbox = InventoryOutbox(db)
+        val repository = repository(outbox)
+        repository.addBatch("QA_Apples", 1f, null, null, count = 1)
+        val product = db.productDao().findProductByName("QA_Apples")!!
+        val item = db.itemDao().getItemsByProduct(product.uid).single()
+        // Clear the creation the way its receipt would, so the deletion bases on the server state.
+        val creation = queued().single()
+        val creationPlan = InventoryOperationProtocol.plan(creation, emptyMap())
+        outbox.acknowledge(ACCOUNT, creation.id, creationPlan.effects)
+        assertNull(db.syncOutboxDao().head(ACCOUNT))
+
+        repository.deleteItem(item.uid)
+
+        // The list stops showing a product with no items and the legacy sender deletes the document, so
+        // V2 has to see a product deletion too, after the item tombstone that emptied it.
+        val intent = queued().single()
+        assertEquals(listOf(InventoryEntityType.ITEM, InventoryEntityType.PRODUCT), intent.changes.map { it.type })
+        assertEquals(item.entityId, intent.changes.first().entityId)
+        assertEquals(product.entityId, intent.changes.last().entityId)
+        assertTrue(intent.changes.all { it.deleted && it.baseRevision == 1L })
+
+        val plan = InventoryOperationProtocol.plan(intent, creationPlan.writes.associateBy { it.key })
+        assertEquals(2, plan.writes.size)
+        assertTrue(plan.writes.all { it.deleted && it.revision == 2L })
+    }
+
+    @Test
+    fun deletingOneOfSeveralItems_queuesOnlyTheItemTombstone() = runTest {
+        val outbox = InventoryOutbox(db)
+        val repository = repository(outbox)
+        repository.addBatch("QA_Apples", 1f, null, null, count = 2)
+        val product = db.productDao().findProductByName("QA_Apples")!!
+        val victim = db.itemDao().getItemsByProduct(product.uid).first()
+
+        repository.deleteItem(victim.uid)
+
+        val changes = queued().last().changes
+        assertEquals(listOf(InventoryEntityType.ITEM), changes.map { it.type })
+        assertEquals(victim.entityId, changes.single().entityId)
+        assertTrue(db.productDao().findProductById(product.uid)!!.revision == 1L)
+    }
+
+    @Test
     fun renamingAProduct_queuesOneProductChangeBasedOnTheReservedRevision() = runTest {
         val outbox = InventoryOutbox(db)
         val repository = repository(outbox)

@@ -317,6 +317,10 @@ Properties to preserve:
 - Deleting a product queues item tombstones first and the product last, in the same action: the server
   keeps items as separate documents, so the order is what keeps it from holding an item that points at a
   product that is already gone.
+- Deleting a product's **last item** is a product deletion and queues both tombstones in that order. The
+  UI never shows an empty product and the legacy sender deletes the document when its items run out, so
+  without the product tombstone V2 would keep an empty product the user has already removed. The local
+  row is left in place: the legacy pull removes it today, and reconciliation owns that once V2 is live.
 - Reconciliation must tolerate a local revision ahead of the server while intents are pending; "local >
   remote" is not corruption. Conflict resolution owns rewinding an inflated revision when a blocked
   intent is discarded. Pulling V2 state back into Room, surfacing conflicts, the durable worker and the
