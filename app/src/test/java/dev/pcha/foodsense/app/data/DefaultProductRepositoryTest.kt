@@ -796,6 +796,15 @@ private class FakeItemDao : ItemDao {
         return 1
     }
 
+    override suspend fun resetRevision(uid: Int, revision: Long): Int {
+        val current = _items.value.find { it.uid == uid } ?: return 0
+        if (current.revision <= revision) return 0
+        _items.value = _items.value.map {
+            if (it.uid == uid) it.copy(revision = revision).also { c -> c.uid = uid } else it
+        }
+        return 1
+    }
+
     fun deleteItemsByProduct(productId: Int) {
         _items.value = _items.value.filter { it.productId != productId }
     }
@@ -863,6 +872,15 @@ private class FakeProductDao(private val itemDao: FakeItemDao) : ProductDao {
     override suspend fun advanceRevision(uid: Int, revision: Long): Int {
         val current = _products.value.find { it.uid == uid } ?: return 0
         if (current.revision >= revision) return 0
+        _products.value = _products.value.map {
+            if (it.uid == uid) it.copy(revision = revision).also { c -> c.uid = uid } else it
+        }
+        return 1
+    }
+
+    override suspend fun resetRevision(uid: Int, revision: Long): Int {
+        val current = _products.value.find { it.uid == uid } ?: return 0
+        if (current.revision <= revision) return 0
         _products.value = _products.value.map {
             if (it.uid == uid) it.copy(revision = revision).also { c -> c.uid = uid } else it
         }

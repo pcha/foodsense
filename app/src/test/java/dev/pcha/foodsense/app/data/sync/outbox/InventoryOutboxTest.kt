@@ -161,16 +161,15 @@ class InventoryOutboxTest {
     }
 
     @Test
-    fun acknowledge_unknownIntent_rollsBackItsEffects() = runTest {
+    fun acknowledge_intentGoneBecauseTheAccountWasDiscarded_stillRecordsTheServerRevision() = runTest {
+        // Signing out drops the account's pending work while a drain can still be in flight. The server
+        // write happened, so the receipt is the truth for whatever row is still here.
         val productUid = db.productDao().insertProduct(ProductEntity("Milk", entityId = "p1")).toInt()
 
-        val result = runCatching {
-            outbox.acknowledge("account-a", "missing", listOf(
-                InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 3, deleted = false, written = true),
-            ))
-        }
+        outbox.acknowledge("account-a", "missing", listOf(
+            InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 3, deleted = false, written = true),
+        ))
 
-        assertTrue(result.isFailure)
-        assertEquals(0L, db.productDao().findProductById(productUid)!!.revision)
+        assertEquals(3L, db.productDao().findProductById(productUid)!!.revision)
     }
 }

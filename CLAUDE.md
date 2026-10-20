@@ -223,9 +223,10 @@ and receipts. They do not recompute SHA-256 or prove every effect in an owner-cr
 written: protocol correctness assumes the owning clients use this adapter; a hostile owner can poison
 their own receipt IDs. A trusted backend would be needed to enforce that stronger invariant.
 
-Before activation, also implement parent/product deletion semantics, referential consistency, and
-permanent receipt/tombstone retention policy. This adapter does not migrate legacy products or query
-and reconcile the V2 collections into Room.
+Before activation, also implement reconciliation (pull V2 state into Room, including items whose
+product is missing or gone), the durable worker, conflict presentation, guest-to-account adoption of
+local-only rows, and a legacy cutover. This adapter does not migrate legacy products or query the V2
+collections into Room.
 
 ### Durable outbox drain
 
@@ -258,14 +259,37 @@ Advancement is monotonic (`revision < :revision` in SQL) because a replayed rece
 effects are skipped for rows that no longer exist locally or that the receipt marks deleted: local
 existence is decided by the local mutation, and remote deletions belong to reconciliation.
 
+### Local data ownership
+
+Room holds one account's inventory. `DefaultProductRepository.handOverLocalData` is the single place that
+moves it: when the device stops belonging to the account the rows belong to - sign-out, or a different
+account signing in - the synced rows and the account's pending intents leave together, in one
+transaction, before anything is pulled or uploaded for the account that is here now.
+
+- The first auth emission of a process cannot be compared with anything. Signed in, it adopts the
+  database it opened: the last sign-out purged it, and purging there would delete the user's offline
+  inventory on every launch. Signed out, nobody owns what is there, so leftovers from a session killed
+  mid-sign-out are dropped.
+- `InventoryOutbox.discardPending` removes every pending intent, blocked ones included, and **rewinds**
+  the revisions those intents reserved (`resetRevision`, only ever backwards). A row that survives the
+  purge - a local-only product added offline - goes back to `0`, so its next intent is a creation, not
+  an edit against a revision the server never reached. The same primitive is what conflict resolution
+  needs when a blocked intent is discarded.
+- Dropping the intents rather than keeping them for the next sign-in of the same account is deliberate:
+  the synced rows they describe are gone, and the next sign-in pulls server state that a stale intent
+  could only conflict with. The legacy sender behaves the same way, since it sends nothing while signed
+  out.
+- A receipt that arrives after its intent was discarded is not an error: the server write happened, so
+  its effects are applied to whatever rows are still here and there is nothing left to remove.
+
 ### Local entity identity and revisions
 
 `product` and `item` carry `entityId` (stable V2 document id, unique index) and `revision` (last
 revision the device knows for that entity; `0` means the V2 server does not have it yet). Neither is
 derived from a device clock or from `serverId`. `LocalInventoryChanges` is the pure, tested bridge from
-a Room row to an `InventoryChange`; `LocalInventoryOperations` composes those changes into the single
-intent that describes a whole local action, including the product document when the server has never
-seen it.
+a Room row to an `InventoryChange`; `LocalInventoryOperations` composes those changes into the ordered
+intents that describe a whole local action, including the product document when the server has never
+seen it, split at the 100-change receipt bound.
 
 ### Optimistic local revisions at enqueue
 

@@ -51,4 +51,11 @@ interface SyncOutboxDao {
     // Only call inside the transaction applying a verified server acknowledgement.
     @Query("DELETE FROM sync_outbox WHERE accountId = :accountId AND operationId = :operationId")
     suspend fun acknowledge(accountId: String, operationId: String): Int
+
+    /** Every pending intent, blocked ones included, for a caller discarding a whole account's work. */
+    @Query("SELECT * FROM sync_outbox ORDER BY sequence")
+    suspend fun getAll(): List<SyncOutboxEntry>
+
+    @Query("DELETE FROM sync_outbox")
+    suspend fun deleteAll(): Int
 }

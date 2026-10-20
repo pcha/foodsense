@@ -129,6 +129,13 @@ interface ProductDao {
     @Query("UPDATE product SET revision = :revision WHERE uid = :uid AND revision < :revision")
     suspend fun advanceRevision(uid: Int, revision: Long): Int
 
+    /**
+     * Undoes a revision that was only reserved by an intent that will never be delivered, so the row
+     * goes back to meaning "the revision the server knows". Only ever moves backwards.
+     */
+    @Query("UPDATE product SET revision = :revision WHERE uid = :uid AND revision > :revision")
+    suspend fun resetRevision(uid: Int, revision: Long): Int
+
     @Query("SELECT * FROM product WHERE uid = :uid LIMIT 1")
     suspend fun findProductById(uid: Int): ProductEntity?
 
@@ -193,4 +200,11 @@ interface ItemDao {
     /** Monotonic: a revision the device already knows is never lowered by a newer acknowledgement. */
     @Query("UPDATE item SET revision = :revision WHERE uid = :uid AND revision < :revision")
     suspend fun advanceRevision(uid: Int, revision: Long): Int
+
+    /**
+     * Undoes a revision that was only reserved by an intent that will never be delivered, so the row
+     * goes back to meaning "the revision the server knows". Only ever moves backwards.
+     */
+    @Query("UPDATE item SET revision = :revision WHERE uid = :uid AND revision > :revision")
+    suspend fun resetRevision(uid: Int, revision: Long): Int
 }

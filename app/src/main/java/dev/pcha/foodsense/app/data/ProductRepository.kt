@@ -3,6 +3,7 @@ package dev.pcha.foodsense.app.data
 import android.util.Log
 import dev.pcha.foodsense.app.BuildConfig
 import dev.pcha.foodsense.app.data.auth.AuthRepository
+import dev.pcha.foodsense.app.data.auth.User
 import dev.pcha.foodsense.app.data.di.ApplicationScope
 import dev.pcha.foodsense.app.data.local.database.ItemDao
 import dev.pcha.foodsense.app.data.local.database.ItemEntity
@@ -78,9 +79,14 @@ class DefaultProductRepository @Inject constructor(
     private val _syncStatus = MutableStateFlow(SyncStatus.Idle)
     override val syncStatus: Flow<SyncStatus> = _syncStatus.asStateFlow()
 
+    /** Account the rows in Room belong to. Resolved on the first auth emission of the process. */
+    private var ownerAccountId: String? = null
+    private var ownerResolved = false
+
     init {
         appScope.launch {
             authRepository.currentUser.collectLatest { user ->
+                handOverLocalData(user)
                 if (user != null) {
                     _syncStatus.value = SyncStatus.Syncing
                     runCatching { migrateLocalDataToFirestore(user.uid) }
@@ -90,16 +96,52 @@ class DefaultProductRepository @Inject constructor(
                         .collect { applyRemoteChanges(user.uid, it) }
                 } else {
                     _syncStatus.value = SyncStatus.Idle
-                    clearLocalData()
                 }
             }
         }
     }
 
+    /**
+     * Moves the database to the account that just emitted, dropping what the previous one left.
+     *
+     * Room holds one account's inventory, so a sign-out or a different account signing in has to take
+     * that account's synced rows and its pending intents away together: otherwise the next account reads
+     * somebody else's data, and V2 would deliver changes on its behalf.
+     *
+     * The first emission of a process cannot be compared with anything. Signed in, it trusts the
+     * database it opens - the last sign-out purged it, and purging here would delete that user's offline
+     * inventory on every launch. Signed out, nobody owns what is there, so leftovers from a session that
+     * was killed mid-sign-out go now.
+     *
+     * The owner only moves after the purge has committed, so a cancelled transition is retried instead
+     * of half-applied.
+     *
+     * @return true when the database was handed over (rows and intents were dropped).
+     */
+    internal suspend fun handOverLocalData(user: User?): Boolean {
+        val uid = user?.uid
+        if (!ownerResolved) {
+            ownerResolved = true
+            ownerAccountId = uid
+            if (uid != null) return false
+            clearLocalData()
+            return true
+        }
+        if (uid == ownerAccountId) return false
+        clearLocalData()
+        ownerAccountId = uid
+        return true
+    }
+
     internal suspend fun clearLocalData() {
-        // Keep local-only products (serverId == null) so data added offline before
-        // signing in isn't lost; migrateLocalDataToFirestore uploads them on next login.
-        productDao.deleteSyncedProducts()
+        localTransactions.run {
+            // Keep local-only products (serverId == null) so data added offline before
+            // signing in isn't lost; migrateLocalDataToFirestore uploads them on next login.
+            productDao.deleteSyncedProducts()
+            // Pending V2 intents belong to the account that is leaving: the synced rows they describe
+            // are gone with it, and no other account may be charged with its changes.
+            intents.discardPending()
+        }
     }
 
     override val products: Flow<List<Product>> =

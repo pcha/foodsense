@@ -19,11 +19,22 @@ interface InventoryIntentRecorder {
      *   transaction; empty when the action has no representable change.
      */
     suspend fun record(accountId: String?, createdAt: Long, operations: () -> List<InventoryOperation>)
+
+    /**
+     * Removes pending intents that can no longer be delivered, in the caller's transaction.
+     *
+     * Called when the device stops belonging to the account they were written for (sign-out or a
+     * different account signing in). See [InventoryOutbox.discardPending] for why they are dropped and
+     * why the revisions they reserved are rewound.
+     */
+    suspend fun discardPending()
 }
 
 /** Keeps the V2 writer dark. Never builds a payload. */
 class DisabledInventoryIntents @Inject constructor() : InventoryIntentRecorder {
     override suspend fun record(accountId: String?, createdAt: Long, operations: () -> List<InventoryOperation>) = Unit
+
+    override suspend fun discardPending() = Unit
 }
 
 class OutboxInventoryIntents @Inject constructor(private val outbox: InventoryOutbox) : InventoryIntentRecorder {
@@ -37,6 +48,8 @@ class OutboxInventoryIntents @Inject constructor(private val outbox: InventoryOu
         }
         outbox.recordCommitted(accountId, intents, createdAt)
     }
+
+    override suspend fun discardPending() = outbox.discardPending()
 
     private companion object {
         const val TAG = "FoodSenseSync"
