@@ -12,38 +12,44 @@ import javax.inject.Inject
  * It owns every `sync_outbox` transition. Three of them change local inventory state too and must be
  * atomic with it:
  *
- * - [enqueue] commits a local mutation together with the intent that describes it, and with the
- *   revisions that intent reserves.
+ * - [enqueue] commits a local mutation together with the intents that describe it, and with the
+ *   revisions those intents reserve.
  * - [recordCommitted] does the same for a mutation the caller already applied in its own transaction.
  * - [acknowledge] commits a verified server receipt's effects together with the intent removal.
+ *
+ * One local action produces one or more intents, in order: see [LocalInventoryOperations]. They are
+ * inserted together with the mutation, so the action stays atomic locally, and they travel in the
+ * order they were written.
  */
 class InventoryOutbox @Inject constructor(private val database: AppDatabase) {
     suspend fun <T> enqueue(
         accountId: String,
-        operation: InventoryOperation,
+        operations: List<InventoryOperation>,
         createdAt: Long,
         localMutation: suspend () -> T,
     ): T {
         require(accountId.isNotBlank())
+        require(operations.isNotEmpty())
         return database.withTransaction {
             // Duplicate operation IDs fail before executing the local mutation a second time.
-            insertIntent(accountId, operation, createdAt)
-            localMutation().also { advanceOptimistically(operation) }
+            operations.forEach { insertIntent(accountId, it, createdAt) }
+            localMutation().also { operations.forEach { advanceOptimistically(it) } }
         }
     }
 
     /**
-     * Commits the intent for a mutation the caller already applied inside this transaction, and reserves
-     * the revisions that intent will produce.
+     * Commits the intents for a mutation the caller already applied inside this transaction, and reserves
+     * the revisions those intents will produce.
      *
      * Call it **after** the local mutation: Room's `@Update` writes the row's own revision column, so a
      * bump made earlier in the same transaction is overwritten by the value it replaced.
      */
-    suspend fun recordCommitted(accountId: String, operation: InventoryOperation, createdAt: Long) {
+    suspend fun recordCommitted(accountId: String, operations: List<InventoryOperation>, createdAt: Long) {
         require(accountId.isNotBlank())
+        require(operations.isNotEmpty())
         database.withTransaction {
-            insertIntent(accountId, operation, createdAt)
-            advanceOptimistically(operation)
+            operations.forEach { insertIntent(accountId, it, createdAt) }
+            operations.forEach { advanceOptimistically(it) }
         }
     }
 

@@ -63,8 +63,8 @@ class InventoryOutboxDrainFirestoreTest {
     @Test
     fun drain_versionedIntents_reachFirestoreAndLeaveTheOutboxEmpty() = firebaseEmulatorTest {
         val userId = session.userId
-        outbox.enqueue(userId, InventoryOperation("add15", listOf(product()) + List(15) { item(it) }), 1L) {}
-        outbox.enqueue(userId, InventoryOperation("rename", listOf(product(revision = 1, name = "Pears"))), 2L) {}
+        outbox.enqueue(userId, listOf(InventoryOperation("add15", listOf(product()) + List(15) { item(it) })), 1L) {}
+        outbox.enqueue(userId, listOf(InventoryOperation("rename", listOf(product(revision = 1, name = "Pears")))), 2L) {}
 
         val report = drain.drain(userId)
 
@@ -87,10 +87,10 @@ class InventoryOutboxDrainFirestoreTest {
         db.itemDao().insertItem(ItemEntity(productUid, 1f, null, null, LocalDate.now(), entityId = "i1"))
         val created = db.productDao().findProductById(productUid)!!
         val item = db.itemDao().getItemsByProduct(productUid).single()
-        outbox.enqueue(userId, InventoryOperation("create", listOf(
+        outbox.enqueue(userId, listOf(InventoryOperation("create", listOf(
             LocalInventoryChanges.product(created),
             LocalInventoryChanges.item(item, created.entityId),
-        )), 1L) {}
+        ))), 1L) {}
 
         drain.drain(userId)
 
@@ -102,7 +102,7 @@ class InventoryOutboxDrainFirestoreTest {
         db.productDao().updateProduct(renamed)
         val change = LocalInventoryChanges.product(renamed)
         assertEquals(1L, change.baseRevision)
-        outbox.enqueue(userId, InventoryOperation("rename", listOf(change)), 2L) {}
+        outbox.enqueue(userId, listOf(InventoryOperation("rename", listOf(change))), 2L) {}
 
         val report = drain.drain(userId)
 
@@ -118,11 +118,11 @@ class InventoryOutboxDrainFirestoreTest {
     fun drain_acknowledgementLost_replayIsNoOpAndStillAcknowledged() = firebaseEmulatorTest {
         val userId = session.userId
         val operation = InventoryOperation("create", listOf(product()))
-        outbox.enqueue(userId, operation, 1L) {}
+        outbox.enqueue(userId, listOf(operation), 1L) {}
         drain.drain(userId)
 
         // Simulate a crash after the server committed the receipt but before Room removed the entry.
-        outbox.enqueue(userId, operation, 2L) {}
+        outbox.enqueue(userId, listOf(operation), 2L) {}
         val report = drain.drain(userId)
 
         assertEquals(listOf("create"), report.acknowledged)

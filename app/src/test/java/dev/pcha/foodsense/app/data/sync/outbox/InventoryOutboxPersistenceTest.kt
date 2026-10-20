@@ -23,7 +23,7 @@ class InventoryOutboxPersistenceTest {
         try {
             val first = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
             try {
-                InventoryOutbox(first).enqueue("account-a", operation, 123L) {}
+                InventoryOutbox(first).enqueue("account-a", listOf(operation), 123L) {}
                 first.syncOutboxDao().recordAttempt("account-a", operation.id)
                 first.syncOutboxDao().recordTransientFailure("account-a", operation.id, "UNAVAILABLE")
             } finally {

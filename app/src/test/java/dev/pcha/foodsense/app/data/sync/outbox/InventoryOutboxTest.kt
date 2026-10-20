@@ -38,7 +38,7 @@ class InventoryOutboxTest {
 
     @Test
     fun enqueue_success_commitsMutationAndImmutablePayloadTogether() = runTest {
-        outbox.enqueue("account-a", operation(), 123L) {
+        outbox.enqueue("account-a", listOf(operation()), 123L) {
             db.productDao().insertProduct(ProductEntity("Milk"))
         }
 
@@ -52,7 +52,7 @@ class InventoryOutboxTest {
     @Test
     fun enqueue_failure_rollsBackMutationAndOutbox() = runTest {
         val result = runCatching {
-            outbox.enqueue("account-a", operation(), 123L) {
+            outbox.enqueue("account-a", listOf(operation()), 123L) {
                 db.productDao().insertProduct(ProductEntity("Milk"))
                 error("Simulated interruption")
             }
@@ -65,7 +65,7 @@ class InventoryOutboxTest {
     @Test
     fun enqueue_cancellation_rollsBackBothWrites() = runTest {
         try {
-            outbox.enqueue("account-a", operation(), 123L) {
+            outbox.enqueue("account-a", listOf(operation()), 123L) {
                 db.productDao().insertProduct(ProductEntity("Milk"))
                 throw CancellationException("Simulated cancellation")
             }
@@ -79,9 +79,9 @@ class InventoryOutboxTest {
     @Test
     fun enqueue_duplicateOperation_doesNotRunMutationAgain() = runTest {
         var executions = 0
-        outbox.enqueue("account-a", operation(), 123L) { executions++ }
+        outbox.enqueue("account-a", listOf(operation()), 123L) { executions++ }
         val result = runCatching {
-            outbox.enqueue("account-a", operation(), 123L) { executions++ }
+            outbox.enqueue("account-a", listOf(operation()), 123L) { executions++ }
         }
         assertTrue(result.isFailure)
         assertEquals(1, executions)
@@ -98,7 +98,7 @@ class InventoryOutboxTest {
         val deletion = InventoryOperation("delete-10", removed.map {
             InventoryChange(InventoryEntityType.ITEM, it.serverId!!, 1, deleted = true)
         })
-        outbox.enqueue("account-a", deletion, 123L) {
+        outbox.enqueue("account-a", listOf(deletion), 123L) {
             removed.forEach { db.itemDao().deleteItem(it.uid) }
         }
 
@@ -109,7 +109,7 @@ class InventoryOutboxTest {
 
     @Test
     fun deliveryMetadata_doesNotChangeOperationIdentityOrPayload() = runTest {
-        outbox.enqueue("account-a", operation(), 123L) {}
+        outbox.enqueue("account-a", listOf(operation()), 123L) {}
         val original = db.syncOutboxDao().head("account-a")!!
         db.syncOutboxDao().recordAttempt("account-a", "op-1")
         db.syncOutboxDao().recordTransientFailure("account-a", "op-1", "UNAVAILABLE")
@@ -123,7 +123,7 @@ class InventoryOutboxTest {
 
     @Test
     fun accountIsolation_doesNotReadAcknowledgeOrModifyAnotherAccountsOperations() = runTest {
-        outbox.enqueue("account-a", operation(), 123L) {}
+        outbox.enqueue("account-a", listOf(operation()), 123L) {}
         assertNull(db.syncOutboxDao().head("account-b"))
         assertEquals(0, db.syncOutboxDao().acknowledge("account-b", "op-1"))
         assertEquals(0, db.syncOutboxDao().recordAttempt("account-b", "op-1"))
@@ -132,8 +132,8 @@ class InventoryOutboxTest {
 
     @Test
     fun blockedHead_remainsAheadOfDependentOperations_regardlessOfTimestamps() = runTest {
-        outbox.enqueue("account-a", operation("first"), 999L) {}
-        outbox.enqueue("account-a", operation("second"), 1L) {}
+        outbox.enqueue("account-a", listOf(operation("first")), 999L) {}
+        outbox.enqueue("account-a", listOf(operation("second")), 1L) {}
         db.syncOutboxDao().block("account-a", "first", "REVISION_CONFLICT")
 
         assertEquals("first", db.syncOutboxDao().head("account-a")!!.operationId)
@@ -150,7 +150,7 @@ class InventoryOutboxTest {
     @Test
     fun acknowledge_appliesEffectsAndRemovesTheIntentInOneCommit() = runTest {
         val productUid = db.productDao().insertProduct(ProductEntity("Milk", entityId = "p1")).toInt()
-        outbox.enqueue("account-a", operation(), 123L) {}
+        outbox.enqueue("account-a", listOf(operation()), 123L) {}
 
         outbox.acknowledge("account-a", "op-1", listOf(
             InventoryOperationEffect(InventoryEntityKey(InventoryEntityType.PRODUCT, "p1"), 3, deleted = false, written = true),

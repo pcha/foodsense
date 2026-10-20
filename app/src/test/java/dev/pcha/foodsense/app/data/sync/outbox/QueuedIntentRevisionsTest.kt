@@ -145,16 +145,70 @@ class QueuedIntentRevisionsTest {
     }
 
     @Test
-    fun anActionTooLargeForOneIntent_staysLocalAndQueuesNothing() = runTest {
+    fun anActionLargerThanOneIntent_isChunked_keptAtomicAndAppliedInOrder() = runTest {
         val outbox = InventoryOutbox(db)
         val repository = repository(outbox)
 
-        repository.addBatch("QA_Huge", 1f, null, null, count = 101)
+        repository.addBatch("QA_Huge", 1f, null, null, count = 250)
 
         val product = db.productDao().findProductByName("QA_Huge")!!
-        assertTrue(queued().isEmpty())
-        assertEquals(101, db.itemDao().getItemsByProduct(product.uid).size)
-        assertEquals(0L, product.revision)
+        val items = db.itemDao().getItemsByProduct(product.uid)
+        // 1 product + 250 items = 251 changes; the deployed rules accept at most 100 effects per receipt.
+        val intents = queued()
+        assertEquals(listOf(100, 100, 51), intents.map { it.changes.size })
+        assertEquals(InventoryEntityType.PRODUCT, intents.first().changes.first().type)
+        assertEquals(251, intents.sumOf { it.changes.size })
+        // One local commit: every row carries the revision its queued intents will produce.
+        assertEquals(250, items.size)
+        assertEquals(1L, product.revision)
+        assertTrue(items.all { it.revision == 1L })
+
+        // Server side: FIFO application, each intent planned against the state the previous one left.
+        var remote = emptyMap<InventoryEntityKey, RemoteInventoryEntity>()
+        val plans = intents.map { intent ->
+            InventoryOperationProtocol.plan(intent, remote).also { plan ->
+                remote = remote + plan.writes.associateBy { it.key }
+            }
+        }
+        assertEquals(251, remote.size)
+        assertTrue(remote.values.all { it.revision == 1L && !it.deleted })
+
+        // Every receipt lands, and nothing is left queued.
+        intents.zip(plans).forEach { (intent, plan) -> outbox.acknowledge(ACCOUNT, intent.id, plan.effects) }
+        assertEquals(1L, db.productDao().findProductById(product.uid)!!.revision)
+        assertEquals(1L, db.itemDao().getItem(items.first().uid)!!.revision)
+        assertNull(db.syncOutboxDao().head(ACCOUNT))
+    }
+
+    @Test
+    fun deletingAProduct_queuesItsItemsThenTheProduct() = runTest {
+        val outbox = InventoryOutbox(db)
+        val repository = repository(outbox)
+        repository.addBatch("QA_Apples", 1f, null, null, count = 3)
+        val product = db.productDao().findProductByName("QA_Apples")!!
+        val items = db.itemDao().getItemsByProduct(product.uid)
+        // Clear the creation the way its receipt would, so the deletion bases on the server state.
+        val creation = queued().single()
+        val creationPlan = InventoryOperationProtocol.plan(creation, emptyMap())
+        outbox.acknowledge(ACCOUNT, creation.id, creationPlan.effects)
+        assertNull(db.syncOutboxDao().head(ACCOUNT))
+
+        repository.deleteProduct(product.uid)
+
+        assertNull(db.productDao().findProductById(product.uid))
+        assertTrue(db.itemDao().getItemsByProduct(product.uid).isEmpty())
+        val intent = queued().single()
+        assertEquals(4, intent.changes.size)
+        assertTrue(intent.changes.all { it.deleted && it.baseRevision == 1L })
+        assertEquals(items.map { it.entityId }, intent.changes.dropLast(1).map { it.entityId })
+        assertEquals(InventoryEntityType.PRODUCT, intent.changes.last().type)
+        assertEquals(product.entityId, intent.changes.last().entityId)
+
+        // Server side: items first, then the product they belong to; all four become tombstones.
+        val plan = InventoryOperationProtocol.plan(intent, creationPlan.writes.associateBy { it.key })
+        assertEquals(4, plan.writes.size)
+        assertTrue(plan.writes.all { it.deleted && it.revision == 2L })
+        assertEquals(4, plan.effects.size)
     }
 
     @Test

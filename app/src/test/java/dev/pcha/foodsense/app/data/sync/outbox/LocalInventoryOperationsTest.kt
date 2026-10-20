@@ -8,7 +8,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -38,7 +37,7 @@ class LocalInventoryOperationsTest {
         val product = product()
         val items = List(15) { item(product) }
 
-        val operation = LocalInventoryOperations.itemsChanged(listOf(product), items)!!
+        val operation = LocalInventoryOperations.itemsChanged(listOf(product), items).single()
 
         operation.validate()
         val productChange = operation.changes.first()
@@ -61,7 +60,9 @@ class LocalInventoryOperationsTest {
     fun productAlreadyOnTheServer_travelsOnlyWithItsItems() {
         val product = product(revision = 3)
 
-        val changes = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item(product, revision = 3)))!!.changes
+        val changes = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item(product, revision = 3)))
+            .single()
+            .changes
 
         assertEquals(listOf(InventoryEntityType.ITEM), changes.map { it.type })
         assertEquals(3L, changes.single().baseRevision)
@@ -71,8 +72,10 @@ class LocalInventoryOperationsTest {
     fun deletions_carryNoFieldsAndReserveTheRevisionTheServerKnows() {
         val product = product(revision = 2)
 
-        val change = LocalInventoryOperations.itemsDeleted(listOf(item(product, revision = 2, entityId = "i1")))!!
-            .changes.single()
+        val change = LocalInventoryOperations.itemsDeleted(listOf(item(product, revision = 2, entityId = "i1")))
+            .single()
+            .changes
+            .single()
 
         assertEquals(InventoryEntityType.ITEM, change.type)
         assertEquals("i1", change.entityId)
@@ -85,7 +88,7 @@ class LocalInventoryOperationsTest {
     fun rename_carriesTheProductEvenWhenTheServerAlreadyKnowsIt() {
         val known = product(name = "Pears", revision = 4)
 
-        val change = LocalInventoryOperations.productChanged(known).changes.single()
+        val change = LocalInventoryOperations.productChanged(known).single().changes.single()
 
         assertEquals(InventoryEntityType.PRODUCT, change.type)
         assertEquals(4L, change.baseRevision)
@@ -97,29 +100,104 @@ class LocalInventoryOperationsTest {
     fun edit_keepsTheBaseRevisionOfTheRowItDescribes() {
         val product = product(revision = 1)
 
-        val change = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item(product, revision = 1, quantity = 2f)))!!
-            .changes.single()
+        val change = LocalInventoryOperations
+            .itemsChanged(listOf(product), listOf(item(product, revision = 1, quantity = 2f)))
+            .single()
+            .changes
+            .single()
 
         assertEquals(1L, change.baseRevision)
         assertEquals(JsonPrimitive(2.0), change.fields["quantity"])
     }
 
     @Test
-    fun moreThanOneHundredChanges_isNotRepresentableAsOneIntent() {
+    fun anActionAtTheRulesLimit_isOneIntent() {
         val product = product(revision = 1)
 
-        assertEquals(100, LocalInventoryOperations.itemsChanged(listOf(product), List(100) { item(product) })!!.changes.size)
-        assertNull(LocalInventoryOperations.itemsChanged(listOf(product), List(101) { item(product) }))
-        assertEquals(100, LocalInventoryOperations.itemsDeleted(List(100) { item(product) })!!.changes.size)
-        assertNull(LocalInventoryOperations.itemsDeleted(List(101) { item(product) }))
+        val operations = LocalInventoryOperations.itemsChanged(listOf(product), List(100) { item(product) })
+
+        assertEquals(1, operations.size)
+        assertEquals(InventoryOperation.MAX_CHANGES, operations.single().changes.size)
+    }
+
+    @Test
+    fun anActionBeyondTheRulesLimit_isSplitInOrder() {
+        val product = product(revision = 1)
+        val items = List(101) { item(product) }
+
+        val operations = LocalInventoryOperations.itemsChanged(listOf(product), items)
+
+        assertEquals(2, operations.size)
+        assertEquals(listOf(100, 1), operations.map { it.changes.size })
+        operations.forEach { it.validate() }
+        // Order is what the FIFO drain relies on: the whole action still arrives, in this order.
+        assertEquals(items.map { it.entityId }, operations.flatMap { operation -> operation.changes.map { it.entityId } })
+        assertNotEquals(operations[0].id, operations[1].id)
+    }
+
+    @Test
+    fun aProductCreation_leadsTheFirstOfSeveralIntents() {
+        val product = product()
+        val items = List(100) { item(product) }
+
+        val operations = LocalInventoryOperations.itemsChanged(listOf(product), items)
+
+        assertEquals(2, operations.size)
+        // 1 product + 100 items = 101 changes: the product fills the first slot of the first intent.
+        assertEquals(InventoryEntityType.PRODUCT, operations[0].changes.first().type)
+        assertEquals(product.entityId, operations[0].changes.first().entityId)
+        assertEquals(100, operations[0].changes.size)
+        assertEquals(1, operations[1].changes.size)
+        assertEquals(InventoryEntityType.ITEM, operations[1].changes.single().type)
+    }
+
+    @Test
+    fun everyIntent_fitsOneReceiptAndOnePayload() {
+        val product = product(revision = 1)
+
+        val operations = LocalInventoryOperations.itemsChanged(listOf(product), List(250) { item(product) })
+
+        assertEquals(3, operations.size)
+        assertTrue(operations.all { it.changes.size <= InventoryOperation.MAX_CHANGES })
+        // encode() rejects a payload over MAX_PAYLOAD_BYTES, so this also covers the wire-size bound.
+        operations.forEach { it.encode() }
+        assertEquals(250, operations.sumOf { it.changes.size })
+    }
+
+    @Test
+    fun deletingAProduct_tombstonesItsItemsBeforeTheProduct() {
+        val product = product(revision = 2)
+        val items = List(3) { item(product, revision = 2) }
+
+        val changes = LocalInventoryOperations.productDeleted(product, items).single().changes
+
+        assertEquals(4, changes.size)
+        assertTrue(changes.all { it.deleted && it.fields.isEmpty() })
+        assertEquals(listOf(InventoryEntityType.ITEM, InventoryEntityType.ITEM, InventoryEntityType.ITEM,
+            InventoryEntityType.PRODUCT), changes.map { it.type })
+        assertEquals(product.entityId, changes.last().entityId)
+        assertEquals(2L, changes.last().baseRevision)
+    }
+
+    @Test
+    fun deletingAProductWithManyItems_leavesTheProductInTheLastIntent() {
+        val product = product(revision = 1)
+        val items = List(100) { item(product, revision = 1) }
+
+        val operations = LocalInventoryOperations.productDeleted(product, items)
+
+        assertEquals(2, operations.size)
+        assertEquals(listOf(100, 1), operations.map { it.changes.size })
+        assertEquals(product.entityId, operations.last().changes.last().entityId)
+        assertEquals(InventoryEntityType.PRODUCT, operations.last().changes.last().type)
     }
 
     @Test
     fun anActionThatChangedNothing_isNotAnIntent() {
         val known = product(revision = 1)
 
-        assertNull(LocalInventoryOperations.itemsChanged(listOf(known), emptyList()))
-        assertNull(LocalInventoryOperations.itemsDeleted(emptyList()))
+        assertTrue(LocalInventoryOperations.itemsChanged(listOf(known), emptyList()).isEmpty())
+        assertTrue(LocalInventoryOperations.itemsDeleted(emptyList()).isEmpty())
     }
 
     @Test
@@ -127,7 +205,7 @@ class LocalInventoryOperationsTest {
         val product = product(revision = 1)
         val item = item(product, entityId = "i1")
 
-        val changes = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item, item))!!.changes
+        val changes = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item, item)).single().changes
 
         assertEquals(listOf("i1"), changes.map { it.entityId })
     }
@@ -143,7 +221,7 @@ class LocalInventoryOperationsTest {
             addedAt = LocalDate.now(),
         )
 
-        assertNull(LocalInventoryOperations.itemsChanged(listOf(product), listOf(orphan)))
+        assertTrue(LocalInventoryOperations.itemsChanged(listOf(product), listOf(orphan)).isEmpty())
     }
 
     @Test
@@ -151,8 +229,8 @@ class LocalInventoryOperationsTest {
         val product = product(revision = 1)
         val item = item(product)
 
-        val first = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item))!!
-        val second = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item))!!
+        val first = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item)).single()
+        val second = LocalInventoryOperations.itemsChanged(listOf(product), listOf(item)).single()
 
         assertNotEquals(first.id, second.id)
     }

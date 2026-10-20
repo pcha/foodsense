@@ -258,12 +258,20 @@ class DefaultProductRepository @Inject constructor(
     }
 
     override suspend fun deleteProduct(productId: Int) {
-        // No V2 intent yet: the server keeps a product's items as separate documents, so deleting one
-        // has to remove them in the same intent. That is the pending product-deletion stage.
-        val product = productDao.findProductById(productId)
-        productDao.deleteProduct(productId)
+        val now = System.currentTimeMillis()
+        val accountId = currentAccountId()
+        val deleted = localTransactions.run {
+            val product = productDao.findProductById(productId) ?: return@run null
+            // The server keeps a product's items as separate documents, so the rows have to be read
+            // before the cascade removes them: deleting a product has to tombstone them in the same
+            // action, items first, or the server keeps an item pointing at a product that is gone.
+            val items = itemDao.getItemsByProduct(product.uid)
+            productDao.deleteProduct(productId)
+            intents.record(accountId, now) { LocalInventoryOperations.productDeleted(product, items) }
+            product
+        }
         syncIfAuthenticated { userId ->
-            product?.serverId?.let { syncRepository.deleteProduct(userId, it) }
+            deleted?.serverId?.let { syncRepository.deleteProduct(userId, it) }
         }
     }
 

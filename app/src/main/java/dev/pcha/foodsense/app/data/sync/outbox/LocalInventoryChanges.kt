@@ -7,9 +7,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Pure bridge from local Room rows to versioned protocol changes. Nothing calls it yet: it exists so
- * the field contract between Room and the V2 wire format is defined and tested in one place, instead
- * of being discovered later by a rules rejection.
+ * Pure bridge from local Room rows to versioned protocol changes. [LocalInventoryOperations] composes
+ * these into intents, so the field contract between Room and the V2 wire format is defined and tested
+ * in one place, instead of being discovered later by a rules rejection.
  *
  * `baseRevision` always comes from the row's known revision, never from a device clock.
  */

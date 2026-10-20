@@ -5,8 +5,8 @@ import dev.pcha.foodsense.app.BuildConfig
 import javax.inject.Inject
 
 /**
- * V2 write path for local mutations: turns the rows a mutation just wrote into a versioned intent and
- * commits it with the optimistic revision bump, inside the caller's transaction.
+ * V2 write path for local mutations: turns the rows a mutation just wrote into versioned intents and
+ * commits them with the optimistic revision bump, inside the caller's transaction.
  *
  * The app binds [DisabledInventoryIntents] while the protocol stays dark: nothing drains the outbox yet,
  * so a device must not accumulate intents it cannot deliver, and the legacy sender is still the one
@@ -15,27 +15,27 @@ import javax.inject.Inject
  */
 interface InventoryIntentRecorder {
     /**
-     * @param operation builds the intent from the rows the caller has already written in this
-     *   transaction; null when the action does not fit one intent.
+     * @param operations builds the intents from the rows the caller has already written in this
+     *   transaction; empty when the action has no representable change.
      */
-    suspend fun record(accountId: String?, createdAt: Long, operation: () -> InventoryOperation?)
+    suspend fun record(accountId: String?, createdAt: Long, operations: () -> List<InventoryOperation>)
 }
 
 /** Keeps the V2 writer dark. Never builds a payload. */
 class DisabledInventoryIntents @Inject constructor() : InventoryIntentRecorder {
-    override suspend fun record(accountId: String?, createdAt: Long, operation: () -> InventoryOperation?) = Unit
+    override suspend fun record(accountId: String?, createdAt: Long, operations: () -> List<InventoryOperation>) = Unit
 }
 
 class OutboxInventoryIntents @Inject constructor(private val outbox: InventoryOutbox) : InventoryIntentRecorder {
-    override suspend fun record(accountId: String?, createdAt: Long, operation: () -> InventoryOperation?) {
+    override suspend fun record(accountId: String?, createdAt: Long, operations: () -> List<InventoryOperation>) {
         // Signed out: these rows are local-only and upload on the next sign-in, like the legacy path.
         if (accountId == null) return
-        val intent = operation()
-        if (intent == null) {
-            if (BuildConfig.DEBUG) Log.w(TAG, "Local action not queued as one V2 intent; local commit kept")
+        val intents = operations()
+        if (intents.isEmpty()) {
+            if (BuildConfig.DEBUG) Log.w(TAG, "Local action has no representable V2 change; local commit kept")
             return
         }
-        outbox.recordCommitted(accountId, intent, createdAt)
+        outbox.recordCommitted(accountId, intents, createdAt)
     }
 
     private companion object {

@@ -41,7 +41,7 @@ class InventoryOutboxDrainTest {
     ))
 
     private suspend fun enqueue(accountId: String, vararg ids: String) {
-        ids.forEach { outbox.enqueue(accountId, operation(it), 123L) {} }
+        ids.forEach { outbox.enqueue(accountId, listOf(operation(it)), 123L) {} }
     }
 
     private suspend fun head(accountId: String) = db.syncOutboxDao().head(accountId)
@@ -224,10 +224,10 @@ class InventoryOutboxDrainTest {
         remote.behavior = ::appliedReceipt
         val product = db.productDao().findProductById(productUid)!!
         val item = db.itemDao().getItemsByProduct(productUid).single()
-        outbox.enqueue("account-a", InventoryOperation("create", listOf(
+        outbox.enqueue("account-a", listOf(InventoryOperation("create", listOf(
             LocalInventoryChanges.product(product),
             LocalInventoryChanges.item(item, product.entityId),
-        )), 1L) {}
+        ))), 1L) {}
 
         val report = drain.drain("account-a")
 
@@ -242,7 +242,7 @@ class InventoryOutboxDrainTest {
         val productUid = insertProduct()
         val created = db.productDao().findProductById(productUid)!!
         remote.behavior = ::appliedReceipt
-        outbox.enqueue("account-a", InventoryOperation("create", listOf(LocalInventoryChanges.product(created))), 1L) {}
+        outbox.enqueue("account-a", listOf(InventoryOperation("create", listOf(LocalInventoryChanges.product(created)))), 1L) {}
         drain.drain("account-a")
 
         val renamed = db.productDao().findProductById(productUid)!!.copy(name = "Pears")
@@ -253,7 +253,7 @@ class InventoryOutboxDrainTest {
         assertEquals(1L, change.baseRevision)
         val recorded = mutableListOf<InventoryOperation>()
         remote.behavior = { operation -> recorded += operation; appliedReceipt(operation) }
-        outbox.enqueue("account-a", InventoryOperation("rename", listOf(change)), 2L) {}
+        outbox.enqueue("account-a", listOf(InventoryOperation("rename", listOf(change))), 2L) {}
 
         drain.drain("account-a")
 

@@ -171,14 +171,15 @@ The rollout stages so far provide:
 - `LocalTransactions` / `RoomLocalTransactions`: one Room transaction per batch add, update, or delete.
 - `ProductRepository.updateItems` and `deleteItems`: ViewModels submit one action, not per-item writes.
 - One legacy remote write per affected product for a batch edit/delete.
-- `InventoryOutbox.enqueue` / `recordCommitted`: commits a local mutation and an immutable, versioned
-  operation together, and reserves the revisions that operation will produce.
-- `LocalInventoryOperations`: builds that operation from the rows the mutation just wrote.
-- The real mutations (`addBatch`, `updateProduct`, `updateItems`, `deleteItems`) call
+- `InventoryOutbox.enqueue` / `recordCommitted`: commits a local mutation and its immutable, versioned
+  intents together, and reserves the revisions those intents will produce.
+- `LocalInventoryOperations`: builds those intents from the rows the mutation just wrote. One local
+  action produces one or more intents in order, because the deployed rules accept at most 100 effects per
+  receipt (`MAX_CHANGES`), so a bigger action is split instead of dropped.
+- The real mutations (`addBatch`, `updateProduct`, `updateItems`, `deleteItems`, `deleteProduct`) call
   `InventoryIntentRecorder`, but Hilt binds `DisabledInventoryIntents`, so no device queues intents yet:
-  nothing drains the outbox and the legacy sender is still what syncs accounts. `deleteProduct`
-  deliberately queues nothing, because the server keeps a product's items as separate documents - that is
-  the pending product-deletion stage.
+  nothing drains the outbox and the legacy sender is still what syncs accounts. Deleting a product
+  queues its item tombstones first and the product last.
 - Account-scoped FIFO ordering, attempts, transient-error metadata, and a blocked-head state. Ordering
   uses the database sequence, not a device timestamp. Payloads retain base revisions and tombstones.
 - Activating the V2 writer is binding `OutboxInventoryIntents` plus scheduling the durable worker.
@@ -213,8 +214,10 @@ authorized server reads for revision drift and re-evaluates the same operation a
 authorization failures are propagated. `disableNetwork()` was not a reliable simulation of transaction
 isolation in emulator tests; do not claim offline transaction coverage from that API alone.
 
-Atomic actions are capped at 100 entity changes / 128 KiB canonical payload and are rejected, never
-silently split. Rules tests cover both 15-item and maximum-size actions. Receipts have no TTL. Rules
+One operation is capped at 100 entity changes / 128 KiB canonical payload and
+`InventoryOperation.validate` rejects a larger one. The 100 is not arbitrary: the deployed rules accept a
+receipt of at most 100 effects (`effects.size() <= 100`), so it cannot be raised without deploying new
+rules. Rules tests cover both 15-item and maximum-size actions. Receipts have no TTL. Rules
 enforce owner isolation, matching receipts on entity writes, revision steps, and immutable tombstones
 and receipts. They do not recompute SHA-256 or prove every effect in an owner-created receipt was
 written: protocol correctness assumes the owning clients use this adapter; a hostile owner can poison
@@ -280,9 +283,16 @@ Properties to preserve:
   row's own revision column, so a bump made earlier is overwritten with the value it replaced.
 - Advancements are monotonic, like a receipt's, so a replayed receipt stays a no-op. Deletions reserve
   nothing: they leave no local row, and the server only tombstones the entity.
-- An action that cannot travel as one intent (more than 100 changes) is left unqueued with a log line,
-  never split, so another device cannot observe half of one user action. The local commit is unaffected
-  and the legacy sender still carries it.
+- An action that needs more than 100 changes is split into ordered intents in the same local
+  transaction, never dropped: a product creation leads the first intent and a product deletion closes the
+  last one. `MAX_CHANGES` matches the deployed rules (`effects.size() <= 100`), so the bound cannot be
+  raised without a rules deploy. The local commit stays atomic; FIFO delivery applies the intents in
+  order, so another device can observe the action partially applied for a moment and then converge.
+  Leaving it unqueued would be worse: reconciliation pulls server state back into Room, so a change the
+  server never received would be silently reverted. The legacy sender still carries the whole action.
+- Deleting a product queues item tombstones first and the product last, in the same action: the server
+  keeps items as separate documents, so the order is what keeps it from holding an item that points at a
+  product that is already gone.
 - Reconciliation must tolerate a local revision ahead of the server while intents are pending; "local >
   remote" is not corruption. Conflict resolution owns rewinding an inflated revision when a blocked
   intent is discarded. Pulling V2 state back into Room, surfacing conflicts, the durable worker and the
@@ -302,7 +312,7 @@ data/sync/
     ├── InventoryOutboxDrain.kt          # FIFO drain, retry/block policy
     ├── InventoryIntentRecorder.kt       # mutation -> intent seam, dark binding by default
     ├── LocalInventoryChanges.kt         # Room row -> protocol change (identity + revision)
-    ├── LocalInventoryOperations.kt      # one local action -> one intent (revision arithmetic)
+    ├── LocalInventoryOperations.kt      # one local action -> ordered intents (chunked at MAX_CHANGES)
     └── FirebaseInventoryOperationRemote.kt
 ```
 
