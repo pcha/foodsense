@@ -10,6 +10,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dev.pcha.foodsense.app.data.sync.FirebaseFirestoreSyncRepository
 import dev.pcha.foodsense.app.data.sync.FirestoreSyncRepository
+import dev.pcha.foodsense.app.data.sync.outbox.DisabledInventoryIntents
+import dev.pcha.foodsense.app.data.sync.outbox.InventoryIntentRecorder
 import javax.inject.Singleton
 
 @Module
@@ -30,5 +32,14 @@ abstract class SyncModule {
                 setLocalCacheSettings(persistentCacheSettings {})
             }
         }
+
+        /**
+         * Keeps the V2 writer dark: no durable worker drains the outbox yet, so an intent queued now
+         * could not be delivered, and the legacy sender is still the one syncing accounts. Activate it by
+         * binding `OutboxInventoryIntents` here, together with the worker. See `CLAUDE.md`.
+         */
+        @Provides
+        @Singleton
+        fun provideInventoryIntentRecorder(): InventoryIntentRecorder = DisabledInventoryIntents()
     }
 }

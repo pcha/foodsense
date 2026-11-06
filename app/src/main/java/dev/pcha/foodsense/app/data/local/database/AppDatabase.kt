@@ -89,10 +89,47 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
-@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class], version = 7)
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS sync_outbox (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                operationId TEXT NOT NULL,
+                accountId TEXT NOT NULL,
+                payloadVersion INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                createdAt INTEGER NOT NULL,
+                attempts INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                lastErrorCode TEXT
+            )
+        """.trimIndent())
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sync_outbox_operationId ON sync_outbox (operationId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_sync_outbox_accountId ON sync_outbox (accountId)")
+    }
+}
+
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Added with a temporary default so the ALTER works on existing rows; Room ignores a
+        // database-side default when the entity declares none. Every row is then given its own
+        // identity, so the default is never actually read.
+        db.execSQL("ALTER TABLE product ADD COLUMN entityId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE product ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE item ADD COLUMN entityId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE item ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE product SET entityId = lower(hex(randomblob(16)))")
+        db.execSQL("UPDATE item SET entityId = lower(hex(randomblob(16)))")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_product_entityId ON product (entityId)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_item_entityId ON item (entityId)")
+    }
+}
+
+@Database(entities = [ProductEntity::class, ItemEntity::class, BarcodeEntry::class, SyncOutboxEntry::class], version = 9)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
     abstract fun itemDao(): ItemDao
     abstract fun barcodeRegistryDao(): BarcodeRegistryDao
+    abstract fun syncOutboxDao(): SyncOutboxDao
 }

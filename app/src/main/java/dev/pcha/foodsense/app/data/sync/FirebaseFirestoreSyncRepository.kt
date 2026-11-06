@@ -1,5 +1,7 @@
 package dev.pcha.foodsense.app.data.sync
 
+import android.util.Log
+import dev.pcha.foodsense.app.BuildConfig
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -18,6 +20,7 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
         firestore.collection("users").document(userId).collection("products")
 
     override suspend fun upsertProduct(userId: String, product: FirestoreProduct): FirestoreProduct {
+        syncLog("PUSH upsert name='${product.name}' serverId=${product.serverId.ifBlank { "<new>" }} updatedAt=${product.updatedAt} items=${product.items.map(::itemLog)}")
         val resolvedItems = product.items.map { item ->
             if (item.id.isBlank()) item.copy(id = UUID.randomUUID().toString()) else item
         }
@@ -36,6 +39,7 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
         )
         val collection = productsCollection(userId)
         val resolvedServerId = upsertProductDocument(collection, product.serverId, data)
+        syncLog("PUSH upsert complete name='${product.name}' serverId=$resolvedServerId items=${resolvedItems.map(::itemLog)}")
         return product.copy(serverId = resolvedServerId, items = resolvedItems)
     }
 
@@ -52,6 +56,7 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
     }
 
     override suspend fun deleteProduct(userId: String, serverId: String) {
+        syncLog("PUSH delete serverId=$serverId")
         productsCollection(userId).document(serverId).delete().await()
     }
 
@@ -61,6 +66,7 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
         items: List<FirestoreItem>,
         updatedAt: Long,
     ): List<FirestoreItem> {
+        syncLog("PUSH updateItems serverId=$productServerId updatedAt=$updatedAt items=${items.map(::itemLog)}")
         val resolvedItems = items.map { item ->
             if (item.id.isBlank()) item.copy(id = UUID.randomUUID().toString()) else item
         }
@@ -89,11 +95,14 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
     override fun listenToChanges(userId: String): Flow<List<FirestoreProduct>> = callbackFlow {
         val listener = productsCollection(userId).addSnapshotListener { snapshot, error ->
             if (error != null) {
+                if (BuildConfig.DEBUG) Log.e(TAG, "snapshot listener failed", error)
                 close(error)
                 return@addSnapshotListener
             }
             if (snapshot == null) return@addSnapshotListener
-            trySend(snapshot.documents.mapNotNull { it.toFirestoreProduct() })
+            val products = snapshot.documents.mapNotNull { it.toFirestoreProduct() }
+            trySend(products)
+            syncLog("PULL snapshot documentCount=${snapshot.size()} parsed=${products.size} fromCache=${snapshot.metadata.isFromCache} products=${products.map(::productLog)}")
         }
         awaitClose { listener.remove() }
     }
@@ -113,5 +122,19 @@ class FirebaseFirestoreSyncRepository @Inject constructor(
         }
         val updatedAt = (get("updatedAt") as? Number)?.toLong() ?: 0L
         return FirestoreProduct(serverId = id, name = name, items = items, updatedAt = updatedAt)
+    }
+
+    private companion object {
+        const val TAG = "FoodSenseSync"
+    }
+
+    private fun itemLog(item: FirestoreItem) =
+        "{id=${item.id},quantity=${item.quantity},unit=${item.unit},expirationEpochDay=${item.expirationDate},addedEpochDay=${item.addedAt}}"
+
+    private fun productLog(product: FirestoreProduct) =
+        "{name='${product.name}',serverId=${product.serverId},updatedAt=${product.updatedAt},items=${product.items.map(::itemLog)}}"
+
+    private fun syncLog(message: String) {
+        if (BuildConfig.DEBUG) Log.d(TAG, message)
     }
 }

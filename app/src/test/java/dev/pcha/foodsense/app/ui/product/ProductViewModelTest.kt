@@ -96,6 +96,19 @@ class ProductViewModelTest {
     }
 
     @Test
+    fun deleteItems_multipleItems_delegatesOneBatchAction() = runTest {
+        val repo = FakeProductRepository()
+        val viewModel = ProductViewModel(repo, FakeBarcodeRepository(), FakeTextRecognizer())
+        val items = List(15) { Item(it, 1, 1f, null, null, LocalDate.now()) }
+        repo.emit(listOf(Product(1, "Apples", items)))
+
+        viewModel.deleteItems(items.take(10).map { it.uid })
+
+        assertEquals(1, repo.batchDeletes)
+        assertEquals(5, viewModel.uiState.value.products.single().items.size)
+    }
+
+    @Test
     fun deleteItem_removesFromList() = runTest {
         val repo = FakeProductRepository()
         val viewModel = ProductViewModel(repo, FakeBarcodeRepository(), FakeTextRecognizer())
@@ -277,6 +290,8 @@ private class FakeProductRepository : ProductRepository {
     override val syncStatus: Flow<SyncStatus> = MutableStateFlow(SyncStatus.Idle)
     private var nextProductUid = 1
     private var nextItemUid = 1
+    var batchDeletes = 0
+        private set
 
     fun emit(products: List<Product>) {
         _products.value = products
@@ -285,15 +300,18 @@ private class FakeProductRepository : ProductRepository {
     }
 
     override suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {
+        addBatch(name, quantity, unit, expirationDate, 1)
+    }
+
+    override suspend fun addBatch(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?, count: Int) {
         val current = _products.value ?: emptyList()
         val existing = current.find { it.name == name }
+        val productId = existing?.uid ?: nextProductUid++
+        val newItems = List(count) { Item(nextItemUid++, productId, quantity, unit, expirationDate, LocalDate.now()) }
         if (existing != null) {
-            val newItem = Item(nextItemUid++, existing.uid, quantity, unit, expirationDate, LocalDate.now())
-            _products.value = current.map { if (it.uid == existing.uid) it.copy(items = it.items + newItem) else it }
+            _products.value = current.map { if (it.uid == existing.uid) it.copy(items = it.items + newItems) else it }
         } else {
-            val productId = nextProductUid++
-            val newItem = Item(nextItemUid++, productId, quantity, unit, expirationDate, LocalDate.now())
-            _products.value = current + Product(productId, name, listOf(newItem))
+            _products.value = current + Product(productId, name, newItems)
         }
     }
 
@@ -304,17 +322,26 @@ private class FakeProductRepository : ProductRepository {
     }
 
     override suspend fun updateItem(itemId: Int, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {
+        updateItems(listOf(itemId), quantity, unit, expirationDate)
+    }
+
+    override suspend fun updateItems(itemIds: List<Int>, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {
         _products.value = (_products.value ?: emptyList()).map { product ->
             product.copy(items = product.items.map { item ->
-                if (item.uid == itemId) item.copy(quantity = quantity, unit = unit, expirationDate = expirationDate)
+                if (item.uid in itemIds) item.copy(quantity = quantity, unit = unit, expirationDate = expirationDate)
                 else item
             })
         }
     }
 
     override suspend fun deleteItem(itemId: Int) {
+        deleteItems(listOf(itemId))
+    }
+
+    override suspend fun deleteItems(itemIds: List<Int>) {
+        batchDeletes++
         _products.value = (_products.value ?: emptyList())
-            .map { it.copy(items = it.items.filter { item -> item.uid != itemId }) }
+            .map { it.copy(items = it.items.filter { item -> item.uid !in itemIds }) }
             .filter { it.items.isNotEmpty() }
     }
 

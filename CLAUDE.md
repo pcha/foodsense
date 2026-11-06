@@ -19,7 +19,7 @@ Before implementing non-trivial Android changes, review the project skills if th
 - **Min SDK:** 26
 - **Target SDK:** 36
 - **Module structure:** single Android module, `:app`
-- **Room schema:** version 7
+- **Room schema:** version 9
 
 ## Tech stack
 
@@ -150,17 +150,198 @@ Recent Room migration context:
 - v5 added `barcode_registry`.
 - v6 added `serverId` to `product` and `item` for sync.
 - v7 added `updatedAt` to `product` for last-write-wins conflict resolution.
+- v8 adds the account-scoped `sync_outbox` table without rewriting existing inventory.
+- v9 adds `entityId` and `revision` to `product` and `item`. `entityId` is the stable V2 document id:
+  generated once per row, unrelated to legacy `serverId`, and enforced unique. Existing rows get a
+  random identity and `revision = 0` ("not created on the V2 server yet"). `ItemDao.replaceItems`
+  preserves the identity of items whose `serverId` survives reconciliation instead of resampling it.
 
 ## Data layer: offline-first Firestore sync
 
 Room is the single source of truth. The UI reads from Room only. Firestore sync runs in the background.
+
+### Versioned outbox rollout status
+
+The versioned outbox protocol is **not active yet**. The app still uses the legacy product-array
+Firestore sender described below. Do not wire `InventoryOutbox` to that sender: it cannot enforce
+operation deduplication, entity revisions, or deletion tombstones.
+
+The rollout stages so far provide:
+
+- `LocalTransactions` / `RoomLocalTransactions`: one Room transaction per batch add, update, or delete.
+- `ProductRepository.updateItems` and `deleteItems`: ViewModels submit one action, not per-item writes.
+- One legacy remote write per affected product for a batch edit/delete.
+- `InventoryOutbox.enqueue` / `recordCommitted`: commits a local mutation and its immutable, versioned
+  intents together, and reserves the revisions those intents will produce.
+- `LocalInventoryOperations`: builds those intents from the rows the mutation just wrote. One local
+  action produces one or more intents in order, because the deployed rules accept at most 100 effects per
+  receipt (`MAX_CHANGES`), so a bigger action is split instead of dropped.
+- The real mutations (`addBatch`, `updateProduct`, `updateItems`, `deleteItems`, `deleteProduct`) call
+  `InventoryIntentRecorder`, but Hilt binds `DisabledInventoryIntents`, so no device queues intents yet:
+  nothing drains the outbox and the legacy sender is still what syncs accounts. Deleting a product
+  queues its item tombstones first and the product last.
+- Account-scoped FIFO ordering, attempts, transient-error metadata, and a blocked-head state. Ordering
+  uses the database sequence, not a device timestamp. Payloads retain base revisions and tombstones.
+- Activating the V2 writer is binding `OutboxInventoryIntents` plus scheduling the durable worker.
+  Conflict presentation/resolution, guest/account ownership, reconciliation (pull) and a legacy-client
+  cutover/migration are still required. The cutover is not just a rename: an activated V2 writer and a
+  still-legacy client would be mutually invisible (different collections and different shapes), so the
+  same account would silently hold two divergent inventories. See `plan/foodsense-room-outbox.md`.
+
+Tests use real Room to check intermediate inventory emissions, rollback on failure/cancellation,
+duplicate operation IDs, account isolation, and persistence after reopening the database.
+
+### Isolated V2 remote operation protocol
+
+`FirebaseInventoryOperationRemote` implements `InventoryOperationRemote` without a live Hilt binding.
+It only uses the new collections under `users/{uid}`:
+
+- `inventory_products`: independent product documents.
+- `inventory_items`: independent lot documents, with `productId` as a field.
+- `inventory_operations`: immutable operation receipts, keyed by the persisted operation ID.
+
+An operation reads its receipt and affected entities in one Firestore transaction. Existing receipts
+return the original result without touching newer entity state; reusing an ID for a different payload
+is rejected. SHA-256 fingerprints canonicalize object keys and entity ordering. Successful operations
+write the entities and receipt atomically. Entity revisions advance by one; `updatedAt` / `committedAt`
+are server timestamps for diagnostics, not conflict arbitration.
+
+The initial conflict policy is deliberately conservative: edits require an exact base revision;
+deletions may beat a concurrent edit, create a persistent tombstone, and repeated deletions are no-ops.
+Edits cannot resurrect tombstones. Disjoint-field merges are not implemented: they still conflict.
+If CAS security rules reject a concurrent commit before Firestore returns ABORTED, the adapter checks
+authorized server reads for revision drift and re-evaluates the same operation at most once. Genuine
+authorization failures are propagated. `disableNetwork()` was not a reliable simulation of transaction
+isolation in emulator tests; do not claim offline transaction coverage from that API alone.
+
+One operation is capped at 100 entity changes / 128 KiB canonical payload and
+`InventoryOperation.validate` rejects a larger one. The 100 is not arbitrary: the deployed rules accept a
+receipt of at most 100 effects (`effects.size() <= 100`), so it cannot be raised without deploying new
+rules. Rules tests cover both 15-item and maximum-size actions. Receipts have no TTL. Rules
+enforce owner isolation, matching receipts on entity writes, revision steps, and immutable tombstones
+and receipts. They do not recompute SHA-256 or prove every effect in an owner-created receipt was
+written: protocol correctness assumes the owning clients use this adapter; a hostile owner can poison
+their own receipt IDs. A trusted backend would be needed to enforce that stronger invariant.
+
+Before activation, also implement reconciliation (pull V2 state into Room, including items whose
+product is missing or gone), the durable worker, conflict presentation, guest-to-account adoption of
+local-only rows, and a legacy cutover. This adapter does not migrate legacy products or query the V2
+collections into Room.
+
+### Durable outbox drain
+
+`InventoryOutboxDrain` consumes one account's `sync_outbox` through an `InventoryOperationRemote`,
+oldest intent first (`HEAD`), and is not bound in Hilt or scheduled yet. It applies strictly FIFO and
+stops at the first intent that cannot be applied, because a later intent can depend on an earlier one.
+Ordering and retry state survive process death; the payload never changes after insertion.
+
+Failure policy uses the protocol taxonomy, not Firestore types:
+
+- `InventoryTransientFailure` (UNAVAILABLE, DEADLINE_EXCEEDED, ABORTED, RESOURCE_EXHAUSTED, INTERNAL,
+  CANCELLED, UNKNOWN, UNAUTHENTICATED, or raw `IOException`): the intent stays PENDING with its error
+  code and one more attempt recorded; a later run retries it. Retrying is safe because the remote
+  deduplicates by operation ID.
+- `InventoryPermanentFailure` (PERMISSION_DENIED, INVALID_ARGUMENT, FAILED_PRECONDITION, NOT_FOUND,
+  ALREADY_EXISTS, ...), `InventoryRevisionConflict`, or `InventoryOperationIdReused`: the intent is
+  BLOCKED — never dropped and never retried blindly — and the queue stops behind it until resolution is
+  implemented. A corrupt payload is also blocked, without calling the remote.
+- Coroutine cancellation propagates and leaves the row untouched.
+
+The attempt counter increments before the network call, so a crash mid-flight is charged. A crash
+between a successful `apply` and the acknowledgement is safe: replaying the same operation ID returns
+the stored receipt and the intent is simply sent again. The drain serializes itself with an in-process
+mutex; the future worker must also use unique work per account.
+
+Acknowledgement is not just deleting the row: `InventoryOutbox.acknowledge` applies the receipt's
+effects and removes the intent in one transaction. Every effect the server actually wrote advances its
+entity to the revision the server assigned, so the next intent for that entity uses it as its base.
+Advancement is monotonic (`revision < :revision` in SQL) because a replayed receipt must be a no-op, and
+effects are skipped for rows that no longer exist locally or that the receipt marks deleted: local
+existence is decided by the local mutation, and remote deletions belong to reconciliation.
+
+### Local data ownership
+
+Room holds one account's inventory. `DefaultProductRepository.handOverLocalData` is the single place that
+moves it: when the device stops belonging to the account the rows belong to - sign-out, or a different
+account signing in - the synced rows and the account's pending intents leave together, in one
+transaction, before anything is pulled or uploaded for the account that is here now.
+
+- The first auth emission of a process cannot be compared with anything. Signed in, it adopts the
+  database it opened: the last sign-out purged it, and purging there would delete the user's offline
+  inventory on every launch. Signed out, nobody owns what is there, so leftovers from a session killed
+  mid-sign-out are dropped.
+- `InventoryOutbox.discardPending` removes every pending intent, blocked ones included, and **rewinds**
+  the revisions those intents reserved (`resetRevision`, only ever backwards). A row that survives the
+  purge - a local-only product added offline - goes back to `0`, so its next intent is a creation, not
+  an edit against a revision the server never reached. The same primitive is what conflict resolution
+  needs when a blocked intent is discarded.
+- Dropping the intents rather than keeping them for the next sign-in of the same account is deliberate:
+  the synced rows they describe are gone, and the next sign-in pulls server state that a stale intent
+  could only conflict with. The legacy sender behaves the same way, since it sends nothing while signed
+  out.
+- A receipt that arrives after its intent was discarded is not an error: the server write happened, so
+  its effects are applied to whatever rows are still here and there is nothing left to remove.
+
+### Local entity identity and revisions
+
+`product` and `item` carry `entityId` (stable V2 document id, unique index) and `revision` (last
+revision the device knows for that entity; `0` means the V2 server does not have it yet). Neither is
+derived from a device clock or from `serverId`. `LocalInventoryChanges` is the pure, tested bridge from
+a Room row to an `InventoryChange`; `LocalInventoryOperations` composes those changes into the ordered
+intents that describe a whole local action, including the product document when the server has never
+seen it, split at the 100-change receipt bound.
+
+### Optimistic local revisions at enqueue
+
+Revisions advance from two directions. A receipt moves every written entity to the revision the server
+assigned (see the drain section). Enqueueing reserves the revision its operation will produce:
+`InventoryOutbox.enqueue` / `recordCommitted` advance each written entity to `baseRevision + 1` in the
+same transaction as the local mutation, so a stored revision means "server revision plus pending local
+writes". Two edits of the same entity queued before the first one drains therefore carry 0 and 1 instead
+of 0 and 0: `InventoryOperationProtocol.plan` requires an exact base for edits, and the second intent now
+applies instead of being reported as a conflict. FIFO ordering is what keeps that arithmetic valid.
+
+Properties to preserve:
+
+- `recordCommitted` must run **after** the local mutation in its transaction: Room's `@Update` writes the
+  row's own revision column, so a bump made earlier is overwritten with the value it replaced.
+- Advancements are monotonic, like a receipt's, so a replayed receipt stays a no-op. Deletions reserve
+  nothing: they leave no local row, and the server only tombstones the entity.
+- An action that needs more than 100 changes is split into ordered intents in the same local
+  transaction, never dropped: a product creation leads the first intent and a product deletion closes the
+  last one. `MAX_CHANGES` matches the deployed rules (`effects.size() <= 100`), so the bound cannot be
+  raised without a rules deploy. The local commit stays atomic; FIFO delivery applies the intents in
+  order, so another device can observe the action partially applied for a moment and then converge.
+  Leaving it unqueued would be worse: reconciliation pulls server state back into Room, so a change the
+  server never received would be silently reverted. The legacy sender still carries the whole action.
+- Deleting a product queues item tombstones first and the product last, in the same action: the server
+  keeps items as separate documents, so the order is what keeps it from holding an item that points at a
+  product that is already gone.
+- Deleting a product's **last item** is a product deletion and queues both tombstones in that order. The
+  UI never shows an empty product and the legacy sender deletes the document when its items run out, so
+  without the product tombstone V2 would keep an empty product the user has already removed. The local
+  row is left in place: the legacy pull removes it today, and reconciliation owns that once V2 is live.
+- Reconciliation must tolerate a local revision ahead of the server while intents are pending; "local >
+  remote" is not corruption. Conflict resolution owns rewinding an inflated revision when a blocked
+  intent is discarded. Pulling V2 state back into Room, surfacing conflicts, the durable worker and the
+  legacy cutover are what remain. Note the protocol requires `quantity > 0`, which the product editor
+  already enforces; do not let a future edit path persist zero.
 
 ```text
 data/sync/
 ├── FirestoreSyncRepository.kt
 ├── FirebaseFirestoreSyncRepository.kt
 ├── SyncWorker.kt
-└── di/SyncModule.kt
+├── di/SyncModule.kt
+└── outbox/
+    ├── InventoryOperation.kt            # versioned intent + wire payload
+    ├── InventoryOperationProtocol.kt    # entity keys, receipts, failure taxonomy, conflict policy
+    ├── InventoryOutbox.kt               # atomic enqueue/record with the local mutation
+    ├── InventoryOutboxDrain.kt          # FIFO drain, retry/block policy
+    ├── InventoryIntentRecorder.kt       # mutation -> intent seam, dark binding by default
+    ├── LocalInventoryChanges.kt         # Room row -> protocol change (identity + revision)
+    ├── LocalInventoryOperations.kt      # one local action -> ordered intents (chunked at MAX_CHANGES)
+    └── FirebaseInventoryOperationRemote.kt
 ```
 
 Core rules implemented in `DefaultProductRepository`:
@@ -237,7 +418,7 @@ If emulators are already running, Gradle reuses them and does not stop them afte
 
 The Firebase CLI is installed as a dev dependency in `firebase/`, so run Firebase commands from that directory.
 
-If local emulators are unavailable for specific Firestore instrumented tests, those tests are designed to skip instead of hiding unrelated regressions behind an environment failure.
+Firestore instrumented tests share `FirebaseEmulatorSession`: each test opens its own named `FirebaseApp`, signs in a fresh anonymous (or email) user, terminates Firestore and deletes the app in teardown. Do not reintroduce a shared `@BeforeClass` client or cached user; that leaked gRPC channels across suites and let one stalled operation hang the whole run. `firebaseEmulatorTest` bounds every setup, test and teardown at 30s and dumps thread stacks to the `FirebaseEmulatorTest` logcat tag on timeout, so a connection problem fails one test instead of stalling `connectedDebugAndroidTest`. Missing emulators now surface as explicit failures rather than silent skips.
 
 ### Compose instrumented tests
 

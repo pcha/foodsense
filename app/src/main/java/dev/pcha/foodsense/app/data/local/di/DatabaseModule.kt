@@ -32,13 +32,20 @@ import dev.pcha.foodsense.app.data.local.database.MIGRATION_3_4
 import dev.pcha.foodsense.app.data.local.database.MIGRATION_4_5
 import dev.pcha.foodsense.app.data.local.database.MIGRATION_5_6
 import dev.pcha.foodsense.app.data.local.database.MIGRATION_6_7
+import dev.pcha.foodsense.app.data.local.database.MIGRATION_7_8
+import dev.pcha.foodsense.app.data.local.database.MIGRATION_8_9
 import dev.pcha.foodsense.app.data.local.database.ProductDao
+import dev.pcha.foodsense.app.data.local.database.LocalTransactions
+import dev.pcha.foodsense.app.data.local.database.RoomLocalTransactions
 import javax.inject.Singleton
 
 
 @Module
 @InstallIn(SingletonComponent::class)
 class DatabaseModule {
+    @Provides
+    fun provideLocalTransactions(transactions: RoomLocalTransactions): LocalTransactions = transactions
+
     @Provides
     fun provideProductDao(appDatabase: AppDatabase): ProductDao {
         return appDatabase.productDao()
@@ -62,7 +69,8 @@ class DatabaseModule {
             AppDatabase::class.java,
             "Product"
         ).addMigrations(
-            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+            MIGRATION_8_9,
         ).build()
     }
 }

@@ -33,9 +33,12 @@ class FakeProductRepository @Inject constructor() : ProductRepository {
     override val syncStatus: Flow<SyncStatus> = flowOf(SyncStatus.Idle)
 
     override suspend fun add(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {}
+    override suspend fun addBatch(name: String, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?, count: Int) {}
     override suspend fun updateProduct(productId: Int, name: String) {}
     override suspend fun updateItem(itemId: Int, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {}
+    override suspend fun updateItems(itemIds: List<Int>, quantity: Float, unit: ProductUnit?, expirationDate: LocalDate?) {}
     override suspend fun deleteItem(itemId: Int) {}
+    override suspend fun deleteItems(itemIds: List<Int>) {}
     override suspend fun deleteProduct(productId: Int) {}
     override suspend fun sync(): Boolean = true
 }

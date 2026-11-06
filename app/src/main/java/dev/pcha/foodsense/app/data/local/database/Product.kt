@@ -18,6 +18,13 @@ import java.time.LocalDate
 
 enum class ProductUnit { L, ML, G, KG }
 
+/**
+ * Stable V2 entity identity. Generated once per row and never derived from [ProductEntity.serverId] or
+ * [ItemEntity.serverId]: the legacy sync path can reassign those, and legacy item ids are inner array
+ * ids, not document ids. Random UUIDs cannot collide across devices.
+ */
+fun newEntityId(): String = java.util.UUID.randomUUID().toString()
+
 class Converters {
     @TypeConverter
     fun fromEpochDay(value: Long?): LocalDate? = value?.let { LocalDate.ofEpochDay(it) }
@@ -32,11 +39,15 @@ class Converters {
     fun toProductUnit(value: String?): ProductUnit? = value?.let { ProductUnit.valueOf(it) }
 }
 
-@Entity(tableName = "product")
+@Entity(tableName = "product", indices = [Index(value = ["entityId"], unique = true)])
 data class ProductEntity(
     val name: String,
     val serverId: String? = null,
     val updatedAt: Long = 0L,
+    /** V2 document id. Immutable once created. */
+    val entityId: String = newEntityId(),
+    /** Last revision this device knows for the entity; 0 means "not created on the V2 server yet". */
+    val revision: Long = 0L,
 ) {
     @PrimaryKey(autoGenerate = true)
     var uid: Int = 0
@@ -50,7 +61,7 @@ data class ProductEntity(
         childColumns = ["productId"],
         onDelete = ForeignKey.CASCADE,
     )],
-    indices = [Index("productId")],
+    indices = [Index("productId"), Index(value = ["entityId"], unique = true)],
 )
 @TypeConverters(Converters::class)
 data class ItemEntity(
@@ -60,6 +71,10 @@ data class ItemEntity(
     val expirationDate: LocalDate?,
     val addedAt: LocalDate,
     val serverId: String? = null,
+    /** V2 document id. Immutable once created. */
+    val entityId: String = newEntityId(),
+    /** Last revision this device knows for the entity; 0 means "not created on the V2 server yet". */
+    val revision: Long = 0L,
 ) {
     @PrimaryKey(autoGenerate = true)
     var uid: Int = 0
@@ -107,6 +122,20 @@ interface ProductDao {
     @Query("SELECT * FROM product WHERE serverId = :serverId LIMIT 1")
     suspend fun findProductByServerId(serverId: String): ProductEntity?
 
+    @Query("SELECT * FROM product WHERE entityId = :entityId LIMIT 1")
+    suspend fun findProductByEntityId(entityId: String): ProductEntity?
+
+    /** Monotonic: a revision the device already knows is never lowered by a newer acknowledgement. */
+    @Query("UPDATE product SET revision = :revision WHERE uid = :uid AND revision < :revision")
+    suspend fun advanceRevision(uid: Int, revision: Long): Int
+
+    /**
+     * Undoes a revision that was only reserved by an intent that will never be delivered, so the row
+     * goes back to meaning "the revision the server knows". Only ever moves backwards.
+     */
+    @Query("UPDATE product SET revision = :revision WHERE uid = :uid AND revision > :revision")
+    suspend fun resetRevision(uid: Int, revision: Long): Int
+
     @Query("SELECT * FROM product WHERE uid = :uid LIMIT 1")
     suspend fun findProductById(uid: Int): ProductEntity?
 
@@ -119,6 +148,31 @@ interface ProductDao {
 
 @Dao
 interface ItemDao {
+    /**
+     * Replaces every item of a product. Identity is keyed by [ItemEntity.serverId], so an item that
+     * still exists on the remote keeps its [ItemEntity.entityId] and its known revision instead of
+     * getting a new one on every reconciliation. Only genuinely new items receive a new identity.
+     *
+     * Blank or repeated remote ids must not hand the same identity to two rows: `entityId` has a unique
+     * index, so the first row wins and any repeat falls back to a fresh identity.
+     */
+    @Transaction
+    suspend fun replaceItems(productId: Int, items: List<ItemEntity>) {
+        val existing = getItemsByProduct(productId)
+        val previousByServerId = existing
+            .mapNotNull { item -> item.serverId?.takeIf { it.isNotBlank() }?.let { it to item } }
+            .toMap()
+        existing.forEach { deleteItem(it.uid) }
+        val claimed = mutableSetOf<String>()
+        items.forEach { item ->
+            val previous = item.serverId?.takeIf { it.isNotBlank() }?.let(previousByServerId::get)
+            insertItem(
+                if (previous == null || !claimed.add(previous.entityId)) item
+                else item.copy(entityId = previous.entityId, revision = previous.revision)
+            )
+        }
+    }
+
     @Insert
     suspend fun insertItem(item: ItemEntity)
 
@@ -139,4 +193,18 @@ interface ItemDao {
 
     @Query("SELECT * FROM item WHERE productId = :productId")
     suspend fun getItemsByProduct(productId: Int): List<ItemEntity>
+
+    @Query("SELECT * FROM item WHERE entityId = :entityId LIMIT 1")
+    suspend fun findItemByEntityId(entityId: String): ItemEntity?
+
+    /** Monotonic: a revision the device already knows is never lowered by a newer acknowledgement. */
+    @Query("UPDATE item SET revision = :revision WHERE uid = :uid AND revision < :revision")
+    suspend fun advanceRevision(uid: Int, revision: Long): Int
+
+    /**
+     * Undoes a revision that was only reserved by an intent that will never be delivered, so the row
+     * goes back to meaning "the revision the server knows". Only ever moves backwards.
+     */
+    @Query("UPDATE item SET revision = :revision WHERE uid = :uid AND revision > :revision")
+    suspend fun resetRevision(uid: Int, revision: Long): Int
 }

@@ -18,6 +18,82 @@ service cloud.firestore {
       match /products/{productId} {
         allow read, write: if isOwner(userId);
       }
+
+      // Isolated V2 collections. Legacy clients keep using /products until an explicit cutover.
+      // Receipts are immutable. Do not add TTL or delete them without a replay-retention design.
+      function validReceipt() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['protocolVersion', 'fingerprint', 'committedAt', 'effects'])
+          && data.protocolVersion == 1
+          && data.fingerprint is string && data.fingerprint.matches('^[0-9a-f]{64}$')
+          && data.committedAt == request.time
+          && data.effects is map && data.effects.size() > 0 && data.effects.size() <= 100;
+      }
+
+      function validMetadata(data) {
+        return data.protocolVersion == 1
+          && data.revision is int && data.revision > 0 && data.revision <= 9007199254740991
+          && data.deleted is bool
+          && data.operationId is string && data.operationId.matches('^[^/]{1,200}$')
+          && data.updatedAt == request.time;
+      }
+
+      function receiptForEntity(data, kind, entityId) {
+        let path = /databases/$(database)/documents/users/$(userId)/inventory_operations/$(data.operationId);
+        let receipt = getAfter(path).data;
+        let effect = receipt.effects[kind + ':' + entityId];
+        return !exists(path)
+          && receipt.protocolVersion == 1
+          && effect.type == kind && effect.id == entityId
+          && effect.revision == data.revision && effect.deleted == data.deleted
+          && effect.written == true;
+      }
+
+      function validProduct(data) {
+        return data.keys().hasOnly(['name', 'protocolVersion', 'revision', 'deleted', 'operationId', 'updatedAt'])
+          && (data.deleted || (data.name is string && data.name.size() > 0 && data.name.size() <= 200));
+      }
+
+      function validItem(data) {
+        return data.keys().hasOnly(['productId', 'quantity', 'unit', 'expirationDate', 'addedAt',
+              'protocolVersion', 'revision', 'deleted', 'operationId', 'updatedAt'])
+          && (data.deleted || (
+            data.productId is string && data.productId.matches('^[^/]{1,200}$')
+            && data.quantity is number && data.quantity > 0
+            && (data.unit == null || data.unit in ['L', 'ML', 'G', 'KG'])
+            && (data.expirationDate == null || data.expirationDate is int)
+            && data.addedAt is int));
+      }
+
+      match /inventory_operations/{operationId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && validReceipt();
+        allow update, delete: if false;
+      }
+
+      match /inventory_products/{productId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && validMetadata(request.resource.data)
+          && validProduct(request.resource.data) && request.resource.data.revision == 1
+          && receiptForEntity(request.resource.data, 'PRODUCT', productId);
+        allow update: if isOwner(userId) && validMetadata(request.resource.data)
+          && validProduct(request.resource.data) && resource.data.deleted == false
+          && request.resource.data.revision == resource.data.revision + 1
+          && receiptForEntity(request.resource.data, 'PRODUCT', productId);
+        allow delete: if false;
+      }
+
+      match /inventory_items/{itemId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && validMetadata(request.resource.data)
+          && validItem(request.resource.data) && request.resource.data.revision == 1
+          && receiptForEntity(request.resource.data, 'ITEM', itemId);
+        allow update: if isOwner(userId) && validMetadata(request.resource.data)
+          && validItem(request.resource.data) && resource.data.deleted == false
+          && request.resource.data.revision == resource.data.revision + 1
+          && receiptForEntity(request.resource.data, 'ITEM', itemId);
+        allow delete: if false;
+      }
     }
   }
 }

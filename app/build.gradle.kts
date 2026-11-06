@@ -109,6 +109,7 @@ dependencies {
     // versión por la resolución consistente de AGP. El MigrationTestHelper de Room 2.8.4 está
     // compilado contra la API 1.8.x y en runtime tira AbstractMethodError.
     implementation(platform(libs.kotlinx.serialization.bom))
+    implementation(libs.kotlinx.serialization.json)
     // Core Android dependencies
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

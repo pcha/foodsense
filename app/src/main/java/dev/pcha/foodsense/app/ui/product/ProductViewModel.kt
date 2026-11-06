@@ -146,9 +146,9 @@ class ProductViewModel @Inject constructor(
                 state.editingGroupItemIds.isNotEmpty() -> {
                     val n = state.formApplyCount.toIntOrNull()?.coerceIn(1, state.maxApplyCount) ?: 1
                     val qty = state.formQuantity.toFloatOrNull()?.takeIf { it > 0f } ?: return@launch
-                    state.editingGroupItemIds.take(n).forEach { id ->
-                        productRepository.updateItem(id, qty, state.formUnit, state.formExpirationDate)
-                    }
+                    productRepository.updateItems(
+                        state.editingGroupItemIds.take(n), qty, state.formUnit, state.formExpirationDate,
+                    )
                 }
                 state.editingProductId != null -> {
                     productRepository.updateProduct(state.editingProductId, state.formName.trim())
@@ -166,9 +166,9 @@ class ProductViewModel @Inject constructor(
                             BarcodeProduct(state.formName.trim(), quantityStr.ifEmpty { null }),
                         )
                     }
-                    repeat(batchCount) {
-                        productRepository.add(state.formName.trim(), qty, state.formUnit, state.formExpirationDate)
-                    }
+                    productRepository.addBatch(
+                        state.formName.trim(), qty, state.formUnit, state.formExpirationDate, batchCount,
+                    )
                 }
             }
             dismissAddSheet()
@@ -183,7 +183,7 @@ class ProductViewModel @Inject constructor(
 
     fun deleteItems(itemIds: List<Int>) {
         viewModelScope.launch {
-            itemIds.forEach { productRepository.deleteItem(it) }
+            productRepository.deleteItems(itemIds)
         }
     }
 
